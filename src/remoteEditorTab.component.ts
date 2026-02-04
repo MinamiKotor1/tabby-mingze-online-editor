@@ -1,4 +1,4 @@
-import { Component, ElementRef, Injector, ViewChild } from '@angular/core'
+import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@angular/core'
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
 
@@ -531,6 +531,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private resizeStartWidth = 0
     private resizeMoveListener: ((e: MouseEvent) => void)|null = null
     private resizeUpListener: (() => void)|null = null
+    private destroyed = false
 
     constructor (
         injector: Injector,
@@ -538,6 +539,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         private platform: PlatformService,
         private notifications: NotificationsService,
         private themes: ThemesService,
+        private cdr: ChangeDetectorRef,
     ) {
         super(injector)
         this.setTitle('Editor')
@@ -565,6 +567,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     ngOnDestroy (): void {
+        this.destroyed = true
         if (this.treeClickTimer !== null) {
             clearTimeout(this.treeClickTimer)
             this.treeClickTimer = null
@@ -691,6 +694,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     onTreeItemDoubleClick (item: SFTPFileItem): void {
+        if (item.isDirectory) {
+            return
+        }
         if (this.treeClickTimer !== null) {
             clearTimeout(this.treeClickTimer)
             this.treeClickTimer = null
@@ -909,16 +915,20 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.currentDir = dir
         this.loadingDir = true
         this.dirLoadError = null
+        this.safeDetectChanges()
         try {
             this.dirContents = await this.loadDirectory(dir)
             this.expandedDirs.clear()
+            this.safeDetectChanges()
         } catch (e: any) {
             this.dirContents = []
             this.expandedDirs.clear()
             this.dirLoadError = e?.message ?? 'Failed to load directory'
             this.notifications.error(this.dirLoadError)
+            this.safeDetectChanges()
         } finally {
             this.loadingDir = false
+            this.safeDetectChanges()
         }
     }
 
@@ -930,10 +940,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         const key = this.normalizeRemotePath(item.fullPath)
         if (this.expandedDirs.has(key)) {
             this.expandedDirs.delete(key)
+            this.safeDetectChanges()
             return
         }
 
         this.expandedDirs.add(key)
+        this.safeDetectChanges()
 
         if (item.loaded) {
             return
@@ -943,11 +955,24 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             item.children = await this.loadDirectory(key)
             item.loaded = true
+            this.safeDetectChanges()
         } catch (e: any) {
             item.loaded = false
             item.children = []
             item.loadError = e?.message ?? 'Failed to load directory'
             this.notifications.error(item.loadError)
+            this.safeDetectChanges()
+        }
+    }
+
+    private safeDetectChanges (): void {
+        if (this.destroyed) {
+            return
+        }
+        try {
+            this.cdr?.detectChanges?.()
+        } catch {
+            // ignore
         }
     }
 

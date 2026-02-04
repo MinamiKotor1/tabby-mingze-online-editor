@@ -103,6 +103,9 @@
 
             ng-container(*ngIf='item.isDirectory && expandedDirs.has(item.fullPath)')
                 .text-muted.small.px-2.py-1(*ngIf='item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24') {{item.loadError}}
+                .text-muted.small.px-2.py-1(*ngIf='!item.loaded && !item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24')
+                    i.fas.fa-spinner.fa-spin.me-1
+                    | Loading...
                 .text-muted.small.px-2.py-1(*ngIf='item.loaded && item.children && !item.children.length', [style.padding-left.px]='(depth + 1) * 16 + 24') Empty
                 ng-container(*ngIf='item.children')
                     ng-container(*ngFor='let child of item.children')

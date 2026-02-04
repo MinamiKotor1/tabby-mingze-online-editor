@@ -8,6 +8,7 @@ declare module '@angular/core' {
     export const ViewChild: any
     export class Injector { }
     export class ElementRef<T = any> { nativeElement: T }
+    export class ChangeDetectorRef { detectChanges (): void }
 }
 
 declare module '@angular/common' {
