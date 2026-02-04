@@ -77,6 +77,7 @@ declare module 'tabby-ssh' {
 
     export class SFTPSession {
         stat (path: string): Promise<any>
+        readdir (path: string): Promise<SFTPFile[]>
         open (path: string, mode: number): Promise<any>
         unlink (path: string): Promise<void>
         rename (oldPath: string, newPath: string): Promise<void>

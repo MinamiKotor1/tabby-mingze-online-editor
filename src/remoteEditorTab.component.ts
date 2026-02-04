@@ -1,8 +1,20 @@
 import { Component, ElementRef, Injector, ViewChild } from '@angular/core'
-import { BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
+import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
+
+export interface SFTPFileItem {
+    name: string
+    fullPath: string
+    isDirectory: boolean
+    isSymlink?: boolean
+    mode: number
+    size: number
+    children?: SFTPFileItem[]
+    loaded?: boolean
+    loadError?: string|null
+}
 
 function getMonaco (): Monaco {
     // Lazy-load so publicPath is already set.
@@ -198,6 +210,9 @@ const LARGE_FILE_WARNING_SIZE = 1 * 1024 * 1024   // 1MB
 const LARGE_FILE_READONLY_SIZE = 5 * 1024 * 1024  // 5MB
 const LARGE_FILE_REJECT_SIZE = 20 * 1024 * 1024   // 20MB
 
+const SIDEBAR_MIN_WIDTH = 150
+const SIDEBAR_MAX_WIDTH = 400
+
 function formatBytes (size: number): string {
     if (!Number.isFinite(size) || size < 0) {
         return `${size}`
@@ -368,6 +383,9 @@ function luminance (rgb: RGB): number {
     styles: [`
         :host { display: block; height: 100%; width: 100%; }
         .min-vh-0 { min-height: 0; }
+        .min-h-0 { min-height: 0; }
+        .min-w-0 { min-width: 0; }
+        .cursor-pointer { cursor: pointer; }
 
         .editor-shell {
             background: var(--theme-bg, var(--bs-body-bg));
@@ -407,6 +425,42 @@ function luminance (rgb: RGB): number {
             width: 100%;
         }
 
+        .sidebar {
+            min-width: 150px;
+            max-width: 400px;
+            position: relative;
+            background: var(--theme-bg, var(--bs-body-bg));
+        }
+
+        .sidebar-header {
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.02));
+            border-bottom-color: var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08))) !important;
+        }
+
+        .sidebar-resizer {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            cursor: col-resize;
+            background: transparent;
+        }
+
+        .sidebar-resizer:hover {
+            background: var(--bs-primary);
+            opacity: 0.6;
+        }
+
+        .tree-item:hover {
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.02));
+        }
+
+        .tree-item.active {
+            background: var(--bs-primary);
+            color: white;
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -441,6 +495,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     // Conflict resolution / diff view
     diffMode = false
 
+    // Sidebar file tree
+    sidebarVisible = true
+    sidebarWidth = 200 // px
+    currentDir = ''
+    dirContents: SFTPFileItem[] = []
+    expandedDirs: Set<string> = new Set()
+    loadingDir = false
+    dirLoadError: string|null = null
+
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
 
     private sftp?: SFTPSession
@@ -462,8 +525,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     // Recorded remote mtime (seconds) for conflict detection
     private remoteMtime: number|null = null
 
+    private treeClickTimer: number|null = null
+    private resizing = false
+    private resizeStartX = 0
+    private resizeStartWidth = 0
+    private resizeMoveListener: ((e: MouseEvent) => void)|null = null
+    private resizeUpListener: (() => void)|null = null
+
     constructor (
         injector: Injector,
+        private app: AppService,
         private platform: PlatformService,
         private notifications: NotificationsService,
         private themes: ThemesService,
@@ -485,74 +556,29 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
         this.startFollowingTheme()
 
-        this.status = 'Loading...'
-        try {
-            this.loading = true
-            this.openError = null
-            this.isBinary = false
-            this.forceOpenBinary = false
-            this.readOnlyLargeFile = false
+        this.sidebarVisible = this.getStoredSidebarVisible()
+        this.sidebarWidth = this.clampSidebarWidth(this.getStoredSidebarWidth())
+        this.currentDir = this.dirname(this.path)
+        void this.loadDirectoryRoot(this.currentDir)
 
-            const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
-            this.remoteMtime = st.mtime
-
-            const fileSize = (typeof this.size === 'number' ? this.size : st.size) ?? null
-            if (typeof this.size !== 'number' && st.size !== null) {
-                this.size = st.size
-            }
-
-            if (fileSize !== null) {
-                if (fileSize > LARGE_FILE_REJECT_SIZE) {
-                    this.openError = `This file is too large to open (${formatBytes(fileSize)})`
-                    this.status = 'Too large'
-                    return
-                }
-
-                if (fileSize > LARGE_FILE_WARNING_SIZE) {
-                    const result = await this.platform.showMessageBox({
-                        type: 'warning',
-                        message: `This file is ${formatBytes(fileSize)}. Opening it may be slow.`,
-                        detail: 'Do you want to continue?',
-                        buttons: ['Open', 'Cancel'],
-                        defaultId: 0,
-                        cancelId: 1,
-                    })
-                    if (result.response !== 0) {
-                        this.destroy()
-                        return
-                    }
-                }
-
-                if (fileSize > LARGE_FILE_READONLY_SIZE) {
-                    this.readOnlyLargeFile = true
-                }
-            }
-
-            const buffer = await this.readRemoteFileBuffer()
-            this.loadedBuffer = buffer
-
-            this.isBinary = isBinaryContent(buffer)
-            if (this.isBinary && !this.forceOpenBinary) {
-                this.status = 'Binary file'
-                return
-            }
-
-            this.detectAndApplyEncoding(buffer)
-            const text = this.decodeBuffer(buffer, this.encoding)
-
-            this.initEditorIfNeeded()
-            this.setEditorValue(text)
-            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
-        } catch (e: any) {
-            this.status = 'Failed to load'
-            this.openError = e?.message ?? 'Failed to load file'
-            this.notifications.error(this.openError)
-        } finally {
-            this.loading = false
-        }
+        await this.loadCurrentFile({ onCancel: 'close' })
     }
 
     ngOnDestroy (): void {
+        if (this.treeClickTimer !== null) {
+            clearTimeout(this.treeClickTimer)
+            this.treeClickTimer = null
+        }
+        if (this.resizeMoveListener) {
+            document.removeEventListener('mousemove', this.resizeMoveListener)
+        }
+        if (this.resizeUpListener) {
+            document.removeEventListener('mouseup', this.resizeUpListener)
+        }
+        this.resizing = false
+        this.resizeMoveListener = null
+        this.resizeUpListener = null
+
         this.themeSubscription?.unsubscribe?.()
         this.disposeDiffEditor()
         this.disposeEditor()
@@ -583,6 +609,93 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.darkMode = !this.darkMode
         this.storeDarkMode(this.darkMode)
         this.applyTheme()
+    }
+
+    toggleSidebar (): void {
+        this.sidebarVisible = !this.sidebarVisible
+        this.storeSidebarVisible(this.sidebarVisible)
+    }
+
+    canGoUpDirectory (): boolean {
+        return this.normalizeRemotePath(this.currentDir) !== '/'
+    }
+
+    goUpDirectory (): void {
+        if (!this.canGoUpDirectory() || this.loadingDir) {
+            return
+        }
+        void this.loadDirectoryRoot(this.parentDir(this.currentDir))
+    }
+
+    refreshDirectory (): void {
+        void this.loadDirectoryRoot(this.currentDir)
+    }
+
+    startResize (event: MouseEvent): void {
+        if (!this.sidebarVisible) {
+            return
+        }
+
+        // Prevent text selection while dragging.
+        event.preventDefault()
+        event.stopPropagation()
+
+        this.resizing = true
+        this.resizeStartX = event.clientX
+        this.resizeStartWidth = this.sidebarWidth
+
+        this.resizeMoveListener = (e: MouseEvent) => {
+            if (!this.resizing) {
+                return
+            }
+            const delta = e.clientX - this.resizeStartX
+            this.sidebarWidth = this.clampSidebarWidth(this.resizeStartWidth + delta)
+        }
+
+        this.resizeUpListener = () => {
+            if (!this.resizing) {
+                return
+            }
+            this.resizing = false
+            this.storeSidebarWidth(this.sidebarWidth)
+
+            if (this.resizeMoveListener) {
+                document.removeEventListener('mousemove', this.resizeMoveListener)
+            }
+            if (this.resizeUpListener) {
+                document.removeEventListener('mouseup', this.resizeUpListener)
+            }
+            this.resizeMoveListener = null
+            this.resizeUpListener = null
+        }
+
+        document.addEventListener('mousemove', this.resizeMoveListener)
+        document.addEventListener('mouseup', this.resizeUpListener)
+    }
+
+    onTreeItemClick (item: SFTPFileItem): void {
+        if (item.isDirectory) {
+            void this.onFileClick(item, false)
+            return
+        }
+
+        if (this.treeClickTimer !== null) {
+            clearTimeout(this.treeClickTimer)
+            this.treeClickTimer = null
+        }
+
+        this.treeClickTimer = window.setTimeout(() => {
+            this.treeClickTimer = null
+            void this.onFileClick(item, false)
+        }, 250)
+    }
+
+    onTreeItemDoubleClick (item: SFTPFileItem): void {
+        if (this.treeClickTimer !== null) {
+            clearTimeout(this.treeClickTimer)
+            this.treeClickTimer = null
+        }
+        void this.onFileClick(item, true)
     }
 
     getStatusBadgeClass (): string {
@@ -708,6 +821,388 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
     }
 
+    private clampSidebarWidth (width: number): number {
+        if (!Number.isFinite(width)) {
+            return 200
+        }
+        return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(width)))
+    }
+
+    private getStoredSidebarVisible (): boolean {
+        try {
+            const v = localStorage.getItem('tabby-mingze-online-editor.sidebarVisible')
+            return v === null ? true : v === '1'
+        } catch {
+            return true
+        }
+    }
+
+    private storeSidebarVisible (visible: boolean): void {
+        try {
+            localStorage.setItem('tabby-mingze-online-editor.sidebarVisible', visible ? '1' : '0')
+        } catch {
+            // ignore
+        }
+    }
+
+    private getStoredSidebarWidth (): number {
+        try {
+            const v = localStorage.getItem('tabby-mingze-online-editor.sidebarWidth')
+            const n = v === null ? NaN : Number.parseInt(v, 10)
+            return Number.isFinite(n) ? n : 200
+        } catch {
+            return 200
+        }
+    }
+
+    private storeSidebarWidth (width: number): void {
+        try {
+            localStorage.setItem('tabby-mingze-online-editor.sidebarWidth', `${this.clampSidebarWidth(width)}`)
+        } catch {
+            // ignore
+        }
+    }
+
+    private normalizeRemotePath (path: string): string {
+        const raw = (path ?? '').toString().replace(/\\/g, '/').trim()
+        if (!raw) {
+            return '/'
+        }
+        let p = raw.replace(/\/+/g, '/')
+        if (p.length > 1 && p.endsWith('/')) {
+            p = p.slice(0, -1)
+        }
+        return p || '/'
+    }
+
+    private joinRemotePath (dirPath: string, name: string): string {
+        const dir = this.normalizeRemotePath(dirPath)
+        const base = (name ?? '').toString().replace(/\\/g, '/').split('/').pop() ?? ''
+        if (!base) {
+            return dir
+        }
+        if (dir === '/' || dir === '') {
+            return `/${base}`.replace(/\/+/g, '/')
+        }
+        return `${dir}/${base}`.replace(/\/+/g, '/')
+    }
+
+    private parentDir (dirPath: string): string {
+        const p = this.normalizeRemotePath(dirPath)
+        if (p === '/' || !p.includes('/')) {
+            return '/'
+        }
+
+        const idx = p.lastIndexOf('/')
+        if (idx <= 0) {
+            return '/'
+        }
+        return p.slice(0, idx) || '/'
+    }
+
+    private dirname (filePath: string): string {
+        return this.parentDir(filePath)
+    }
+
+    private async loadDirectoryRoot (dirPath: string): Promise<void> {
+        const dir = this.normalizeRemotePath(dirPath)
+        this.currentDir = dir
+        this.loadingDir = true
+        this.dirLoadError = null
+        try {
+            this.dirContents = await this.loadDirectory(dir)
+            this.expandedDirs.clear()
+        } catch (e: any) {
+            this.dirContents = []
+            this.expandedDirs.clear()
+            this.dirLoadError = e?.message ?? 'Failed to load directory'
+            this.notifications.error(this.dirLoadError)
+        } finally {
+            this.loadingDir = false
+        }
+    }
+
+    private async toggleDirectory (item: SFTPFileItem): Promise<void> {
+        if (!item.isDirectory) {
+            return
+        }
+
+        const key = this.normalizeRemotePath(item.fullPath)
+        if (this.expandedDirs.has(key)) {
+            this.expandedDirs.delete(key)
+            return
+        }
+
+        this.expandedDirs.add(key)
+
+        if (item.loaded) {
+            return
+        }
+
+        item.loadError = null
+        try {
+            item.children = await this.loadDirectory(key)
+            item.loaded = true
+        } catch (e: any) {
+            item.loaded = false
+            item.children = []
+            item.loadError = e?.message ?? 'Failed to load directory'
+            this.notifications.error(item.loadError)
+        }
+    }
+
+    private async onFileClick (item: SFTPFileItem, newTab: boolean): Promise<void> {
+        if (item.isDirectory) {
+            await this.toggleDirectory(item)
+            return
+        }
+
+        if (!item.fullPath) {
+            return
+        }
+
+        if (newTab) {
+            const sshSession: any = this.sshSession
+            if (!sshSession) {
+                this.notifications.error('No SSH session available')
+                return
+            }
+
+            try {
+                sshSession.ref?.()
+                this.app.openNewTabRaw({
+                    type: RemoteEditorTabComponent,
+                    inputs: {
+                        sshSession,
+                        path: item.fullPath,
+                        name: item.name,
+                        mode: item.mode,
+                        size: item.size,
+                    },
+                })
+            } catch (e: any) {
+                sshSession.unref?.()
+                this.notifications.error(e?.message ?? 'Failed to open editor tab')
+            }
+            return
+        }
+
+        if (item.fullPath === this.path) {
+            return
+        }
+
+        if (this.diffMode) {
+            this.notifications.notice('Resolve the conflict first')
+            return
+        }
+
+        if (this.dirty) {
+            const result = await this.platform.showMessageBox({
+                type: 'warning',
+                message: 'Save changes before switching?',
+                buttons: ['Save', 'Discard', 'Cancel'],
+                defaultId: 0,
+                cancelId: 2,
+            })
+
+            if (result.response === 2) {
+                return
+            }
+            if (result.response === 0) {
+                const saved = await this.save()
+                if (!saved) {
+                    return
+                }
+            }
+        }
+
+        const prev = {
+            path: this.path,
+            name: this.name,
+            mode: this.mode,
+            size: this.size,
+            title: this.title,
+            languageId: this.languageId,
+            encoding: this.encoding,
+            encodingAuto: this.encodingAuto,
+            loadedBuffer: this.loadedBuffer,
+            remoteMtime: this.remoteMtime,
+            readOnlyLargeFile: this.readOnlyLargeFile,
+            isBinary: this.isBinary,
+            forceOpenBinary: this.forceOpenBinary,
+            openError: this.openError,
+            status: this.status,
+            dirty: this.dirty,
+            bomOffset: this.bomOffset,
+            bomBytes: this.bomBytes,
+            bomEncoding: this.bomEncoding,
+        }
+
+        this.path = item.fullPath
+        this.name = item.name
+        this.mode = item.mode
+        this.size = item.size
+        this.setTitle(item.name ?? item.fullPath)
+
+        this.languageId = detectLanguageId(item.name ?? item.fullPath)
+        this.encodingAuto = true
+        this.encoding = 'utf-8'
+        this.loadedBuffer = null
+        this.remoteMtime = null
+
+        const ok = await this.loadCurrentFile({ onCancel: 'keep' })
+        if (!ok) {
+            // User cancelled opening (large file warning); revert to previous file.
+            this.path = prev.path
+            this.name = prev.name
+            this.mode = prev.mode
+            this.size = prev.size
+            this.setTitle(prev.title ?? prev.name ?? prev.path)
+
+            this.languageId = prev.languageId
+            this.encoding = prev.encoding
+            this.encodingAuto = prev.encodingAuto
+            this.loadedBuffer = prev.loadedBuffer
+            this.remoteMtime = prev.remoteMtime
+            this.readOnlyLargeFile = prev.readOnlyLargeFile
+            this.isBinary = prev.isBinary
+            this.forceOpenBinary = prev.forceOpenBinary
+            this.openError = prev.openError
+            this.status = prev.status
+            this.dirty = prev.dirty
+            this.bomOffset = prev.bomOffset
+            this.bomBytes = prev.bomBytes
+            this.bomEncoding = prev.bomEncoding
+        }
+    }
+
+    private async loadDirectory (dirPath: string): Promise<SFTPFileItem[]> {
+        const sftp: any = await this.getSftp()
+        if (!sftp?.readdir) {
+            throw new Error('SFTP directory listing is not available')
+        }
+
+        const dir = this.normalizeRemotePath(dirPath)
+        const items: any[] = await sftp.readdir(dir)
+
+        return (items ?? [])
+            .map((item: any) => {
+                const name = (item?.name ?? item?.filename ?? '').toString()
+                if (!name || name === '.' || name === '..') {
+                    return null
+                }
+
+                const mode = typeof item?.mode === 'number' ? item.mode : 0
+                const isSymlink = ((mode & 0o170000) === 0o120000) // POSIX S_IFLNK
+                const isDirectory =
+                    typeof item?.isDirectory === 'boolean'
+                        ? item.isDirectory
+                        : ((mode & 0o170000) === 0o040000) // POSIX S_IFDIR
+
+                const size = typeof item?.size === 'number' ? item.size : 0
+
+                const fullPath = this.joinRemotePath(dir, name)
+                const out: SFTPFileItem = { name, fullPath, isDirectory, isSymlink, mode, size }
+                if (isDirectory) {
+                    out.loaded = false
+                    out.loadError = null
+                }
+                return out
+            })
+            .filter(Boolean)
+            .sort((a: any, b: any) => {
+                if (a.isDirectory !== b.isDirectory) {
+                    return a.isDirectory ? -1 : 1
+                }
+                return a.name.localeCompare(b.name)
+            }) as SFTPFileItem[]
+    }
+
+    private async loadCurrentFile (opts: { onCancel: 'close'|'keep' }): Promise<boolean> {
+        this.status = 'Loading...'
+        try {
+            this.loading = true
+            this.openError = null
+            this.isBinary = false
+            this.forceOpenBinary = false
+            this.readOnlyLargeFile = false
+            this.dirty = false
+
+            const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
+            this.remoteMtime = st.mtime
+
+            const fileSize = (typeof this.size === 'number' ? this.size : st.size) ?? null
+            if (typeof this.size !== 'number' && st.size !== null) {
+                this.size = st.size
+            }
+
+            if (fileSize !== null) {
+                if (fileSize > LARGE_FILE_REJECT_SIZE) {
+                    this.openError = `This file is too large to open (${formatBytes(fileSize)})`
+                    this.status = 'Too large'
+                    return true
+                }
+
+                if (fileSize > LARGE_FILE_WARNING_SIZE) {
+                    const result = await this.platform.showMessageBox({
+                        type: 'warning',
+                        message: `This file is ${formatBytes(fileSize)}. Opening it may be slow.`,
+                        detail: 'Do you want to continue?',
+                        buttons: ['Open', 'Cancel'],
+                        defaultId: 0,
+                        cancelId: 1,
+                    })
+                    if (result.response !== 0) {
+                        if (opts.onCancel === 'close') {
+                            this.destroy()
+                        }
+                        return false
+                    }
+                }
+
+                if (fileSize > LARGE_FILE_READONLY_SIZE) {
+                    this.readOnlyLargeFile = true
+                }
+            }
+
+            const buffer = await this.readRemoteFileBuffer()
+            this.loadedBuffer = buffer
+
+            this.isBinary = isBinaryContent(buffer)
+            if (this.isBinary && !this.forceOpenBinary) {
+                this.status = 'Binary file'
+                return true
+            }
+
+            this.detectAndApplyEncoding(buffer)
+            const text = this.decodeBuffer(buffer, this.encoding)
+
+            this.initEditorIfNeeded()
+            this.applyLanguageToEditor()
+            this.setEditorValue(text)
+            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+            return true
+        } catch (e: any) {
+            this.status = 'Failed to load'
+            this.openError = e?.message ?? 'Failed to load file'
+            this.notifications.error(this.openError)
+            return true
+        } finally {
+            this.loading = false
+        }
+    }
+
+    private applyLanguageToEditor (): void {
+        try {
+            const monaco = getMonaco()
+            const model = this.editor?.getModel?.()
+            if (model) {
+                monaco.editor.setModelLanguage(model as any, this.languageId)
+            }
+        } catch {
+            // ignore
+        }
+    }
 
     async canClose (): Promise<boolean> {
         if (!this.dirty) {

@@ -1,6 +1,10 @@
 .d-flex.flex-column.w-100.h-100
     .editor-shell.d-flex.flex-column.w-100.h-100.min-vh-0.border.rounded
         .editor-toolbar.d-flex.align-items-center.gap-2.p-2.border-bottom.flex-wrap([class.editor-toolbar-dark]='darkMode', [class.editor-toolbar-light]='!darkMode')
+            button.btn.btn-outline-secondary.btn-sm.text-nowrap(type='button', (click)='toggleSidebar()', [title]='sidebarVisible ? "Hide sidebar" : "Show sidebar"')
+                i.fas.me-1([class.fa-chevron-left]='sidebarVisible', [class.fa-chevron-right]='!sidebarVisible')
+                span Explorer
+
             button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='openError || readOnlyLargeFile || (isBinary && !forceOpenBinary) || !dirty || saving || loading', [class.opacity-75]='saving || loading')
                 i.fas.fa-spinner.fa-spin.me-1(*ngIf='saving || loading')
                 i.fas.fa-save.fa-floppy-disk.me-1(*ngIf='!saving && !loading')
@@ -37,19 +41,69 @@
             span.badge.bg-warning.text-dark(*ngIf='readOnlyLargeFile && !diffMode') Read-only
             span.badge.bg-warning.text-dark(*ngIf='dirty && !diffMode') Modified
 
-        .flex-grow-1.min-vh-0.position-relative
-            .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='openError')
-                .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
-                    i.fas.fa-triangle-exclamation.fa-3x.mb-3.text-warning
-                    p.fw-semibold.mb-2 {{openError}}
-                    button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
+        .d-flex.flex-grow-1.min-vh-0.min-h-0
+            //- Sidebar / file tree
+            .sidebar.border-end.d-flex.flex-column(*ngIf='sidebarVisible', [style.width.px]='sidebarWidth')
+                .sidebar-header.d-flex.align-items-center.p-2.border-bottom.gap-1
+                    i.fas.fa-folder-open.text-warning.me-1
+                    span.text-truncate.flex-grow-1.small {{currentDir}}
 
-            .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary')
-                .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
-                    i.fas.fa-file-zipper.fa-3x.mb-3
-                    p.mb-3 This file appears to be binary and cannot be edited.
-                    .d-flex.justify-content-center.gap-2
-                        button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='goUpDirectory()', [disabled]='loadingDir || !canGoUpDirectory()', title='Up')
+                        i.fas.fa-level-up-alt
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='refreshDirectory()', [disabled]='loadingDir', title='Refresh')
+                        i.fas.fa-sync-alt([class.fa-spin]='loadingDir')
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='Hide')
+                        i.fas.fa-xmark.fa-times
+
+                .sidebar-tree.flex-grow-1.overflow-auto
+                    .text-muted.small.p-2(*ngIf='loadingDir') Loading...
+                    .text-danger.small.p-2(*ngIf='dirLoadError && !loadingDir') {{dirLoadError}}
+                    .text-muted.small.p-2(*ngIf='!loadingDir && !dirLoadError && (!dirContents || !dirContents.length)') Empty
+
+                    ng-container(*ngFor='let item of dirContents')
+                        ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: item, depth: 0}')
+
+                .sidebar-resizer((mousedown)='startResize($event)')
+
+            //- Editor area
+            .flex-grow-1.min-w-0.min-vh-0.min-h-0.position-relative
+                .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='openError')
+                    .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
+                        i.fas.fa-triangle-exclamation.fa-3x.mb-3.text-warning
+                        p.fw-semibold.mb-2 {{openError}}
                         button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
-            .w-100.h-100(#editorHost, [hidden]='openError || (isBinary && !forceOpenBinary)')
+                .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary')
+                    .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
+                        i.fas.fa-file-zipper.fa-3x.mb-3
+                        p.mb-3 This file appears to be binary and cannot be edited.
+                        .d-flex.justify-content-center.gap-2
+                            button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
+                            button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
+
+                .w-100.h-100(#editorHost, [hidden]='openError || (isBinary && !forceOpenBinary)')
+
+        //- File tree item template (recursive)
+        ng-template(#fileTreeItem, let-item='item', let-depth='depth')
+            .tree-item.d-flex.align-items-center.px-2.py-1.cursor-pointer(
+                [class.active]='item.fullPath === path',
+                [style.padding-left.px]='depth * 16 + 8',
+                (click)='onTreeItemClick(item)',
+                (dblclick)='onTreeItemDoubleClick(item)'
+            )
+                i.fas.me-2(
+                    [class.fa-folder]='item.isDirectory && !expandedDirs.has(item.fullPath)',
+                    [class.fa-folder-open]='item.isDirectory && expandedDirs.has(item.fullPath)',
+                    [class.fa-file]='!item.isDirectory',
+                    [class.text-warning]='item.isDirectory'
+                )
+                i.fas.fa-lock.text-muted.me-2(*ngIf='item.isDirectory && item.loadError', [title]='item.loadError')
+                i.fas.fa-link.text-muted.me-2(*ngIf='item.isSymlink')
+                span.text-truncate {{item.name}}
+
+            ng-container(*ngIf='item.isDirectory && expandedDirs.has(item.fullPath)')
+                .text-muted.small.px-2.py-1(*ngIf='item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24') {{item.loadError}}
+                .text-muted.small.px-2.py-1(*ngIf='item.loaded && item.children && !item.children.length', [style.padding-left.px]='(depth + 1) * 16 + 24') Empty
+                ng-container(*ngIf='item.children')
+                    ng-container(*ngFor='let child of item.children')
+                        ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: child, depth: depth + 1}')
