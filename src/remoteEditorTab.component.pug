@@ -1,0 +1,9 @@
+.d-flex.flex-column.w-100.h-100
+    .d-flex.align-items-center.mb-2.gap-2
+        button.btn.btn-primary((click)='save()', [disabled]='!dirty || saving || loading') Save
+        button.btn.btn-outline-secondary((click)='toggleDarkMode()') {{darkMode ? 'Light' : 'Dark'}}
+        span.text-muted {{status}}
+        span.ms-auto.text-muted(*ngIf='dirty') Modified
+
+    .flex-grow-1.min-vh-0.position-relative
+        .w-100.h-100.border.rounded(#editorHost)

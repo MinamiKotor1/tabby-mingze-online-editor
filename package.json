@@ -1,0 +1,44 @@
+{
+  "name": "tabby-mingze-online-editor",
+  "version": "0.1.0",
+  "description": "Edit remote files over SFTP inside Tabby using Monaco.",
+  "keywords": [
+    "tabby-plugin"
+  ],
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "scripts": {
+    "build": "webpack --progress --color",
+    "watch": "webpack --progress --color --watch",
+    "prepublishOnly": "yarn build"
+  },
+  "files": [
+    "dist"
+  ],
+  "author": "Mingze",
+  "license": "MIT",
+  "dependencies": {
+    "monaco-editor": "^0.47.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/webpack-env": "^1.16.0",
+    "apply-loader": "^2.0.0",
+    "css-loader": "^6.10.0",
+    "monaco-editor-webpack-plugin": "^7.1.0",
+    "pug": "^3.0.2",
+    "pug-loader": "^2.4.0",
+    "style-loader": "^3.3.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "peerDependencies": {
+    "@angular/common": "*",
+    "@angular/core": "*",
+    "rxjs": "*",
+    "tabby-core": "*",
+    "tabby-ssh": "*"
+  }
+}
