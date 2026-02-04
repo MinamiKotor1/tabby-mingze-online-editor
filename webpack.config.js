@@ -43,6 +43,7 @@ module.exports = {
     '@electron/remote',
     'ngx-toastr',
     'russh',
+    'iconv-lite',
     /^rxjs/,
     /^@angular/,
     /^@ng-bootstrap/,

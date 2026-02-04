@@ -22,6 +22,7 @@ declare module 'tabby-core' {
         label?: string
         click?: () => void
         type?: string
+        checked?: boolean
         commandLabel?: string
         sublabel?: string
     }
@@ -37,6 +38,7 @@ declare module 'tabby-core' {
 
     export class PlatformService {
         showMessageBox (options: any): Promise<{ response: number }>
+        popupContextMenu (menu: MenuItemOptions[], event?: MouseEvent): void
     }
 
     export class ThemesService {
@@ -48,6 +50,7 @@ declare module 'tabby-core' {
         icon: string | null
         constructor (injector: any)
         setTitle (title: string): void
+        destroy (skipDestroyedEvent?: boolean): void
         ngOnDestroy (): void
         canClose (): Promise<boolean>
     }

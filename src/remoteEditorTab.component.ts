@@ -33,6 +33,52 @@ function ensureMonacoLanguagesLoaded (): void {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution')
 
+    // Web development
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/html/html.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/css/css.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/scss/scss.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/less/less.contribution')
+
+    // Databases
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/sql/sql.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/pgsql/pgsql.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/redis/redis.contribution')
+
+    // Systems programming
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/rust/rust.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/java/java.contribution')
+
+    // Other common formats / languages
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/ruby/ruby.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/php/php.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/perl/perl.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/lua/lua.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/xml/xml.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution')
+
     // JSON is provided by a dedicated language service.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('monaco-editor/esm/vs/language/json/monaco.contribution')
@@ -61,8 +107,68 @@ function detectLanguageId (pathOrName: string): string {
     ) {
         return 'shell'
     }
+    if (base.endsWith('.ts') || base.endsWith('.tsx')) {
+        return 'typescript'
+    }
+    if (base.endsWith('.js') || base.endsWith('.jsx') || base.endsWith('.mjs') || base.endsWith('.cjs')) {
+        return 'javascript'
+    }
+    if (base.endsWith('.html') || base.endsWith('.htm')) {
+        return 'html'
+    }
+    if (base.endsWith('.css')) {
+        return 'css'
+    }
+    if (base.endsWith('.scss')) {
+        return 'scss'
+    }
+    if (base.endsWith('.less')) {
+        return 'less'
+    }
     if (base.endsWith('.go')) {
         return 'go'
+    }
+    if (base.endsWith('.sql')) {
+        return 'sql'
+    }
+    if (base.endsWith('.mysql')) {
+        return 'mysql'
+    }
+    if (base.endsWith('.pgsql')) {
+        return 'pgsql'
+    }
+    if (base.endsWith('.redis')) {
+        return 'redis'
+    }
+    if (base.endsWith('.rs')) {
+        return 'rust'
+    }
+    if (base.endsWith('.cpp') || base.endsWith('.cc') || base.endsWith('.cxx') || base.endsWith('.hpp') || base.endsWith('.hh') || base.endsWith('.hxx')) {
+        return 'cpp'
+    }
+    if (base.endsWith('.c') || base.endsWith('.h')) {
+        return 'c'
+    }
+    if (base.endsWith('.java')) {
+        return 'java'
+    }
+    if (base.endsWith('.rb')) {
+        return 'ruby'
+    }
+    if (base.endsWith('.php')) {
+        return 'php'
+    }
+    if (base.endsWith('.pl') || base.endsWith('.pm')) {
+        return 'perl'
+    }
+    if (base.endsWith('.lua')) {
+        return 'lua'
+    }
+    if (base.endsWith('.xml')) {
+        return 'xml'
+    }
+    if (base.endsWith('.graphql') || base.endsWith('.gql')) {
+        return 'graphql'
     }
     if (base.endsWith('.json')) {
         return 'json'
@@ -86,6 +192,87 @@ function detectLanguageId (pathOrName: string): string {
     }
 
     return 'plaintext'
+}
+
+const LARGE_FILE_WARNING_SIZE = 1 * 1024 * 1024   // 1MB
+const LARGE_FILE_READONLY_SIZE = 5 * 1024 * 1024  // 5MB
+const LARGE_FILE_REJECT_SIZE = 20 * 1024 * 1024   // 20MB
+
+function formatBytes (size: number): string {
+    if (!Number.isFinite(size) || size < 0) {
+        return `${size}`
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let n = size
+    let unit = 0
+    while (n >= 1024 && unit < units.length - 1) {
+        n /= 1024
+        unit++
+    }
+
+    if (unit === 0) {
+        return `${n} ${units[unit]}`
+    }
+    const digits = n >= 10 ? 1 : 2
+    return `${n.toFixed(digits)} ${units[unit]}`
+}
+
+type EncodingOption = { id: string, label: string }
+
+const ENCODINGS: EncodingOption[] = [
+    { id: 'utf-8', label: 'UTF-8' },
+    { id: 'gbk', label: 'GBK (Simplified Chinese)' },
+    { id: 'gb18030', label: 'GB18030 (Simplified Chinese)' },
+    { id: 'big5', label: 'Big5 (Traditional Chinese)' },
+    { id: 'shift_jis', label: 'Shift_JIS (Japanese)' },
+    { id: 'euc-kr', label: 'EUC-KR (Korean)' },
+    { id: 'iso-8859-1', label: 'ISO-8859-1 (Latin-1)' },
+    { id: 'windows-1252', label: 'Windows-1252' },
+]
+
+function isBinaryContent (buffer: Buffer): boolean {
+    const sample = buffer.slice(0, 8192)
+
+    if (sample.includes(0x00)) {
+        return true
+    }
+
+    let nonText = 0
+    for (const byte of sample) {
+        if (byte < 0x09 || (byte > 0x0D && byte < 0x20 && byte !== 0x1B)) {
+            nonText++
+        }
+    }
+    return sample.length > 0 && nonText / sample.length > 0.1
+}
+
+function detectBOM (buffer: Buffer): { encoding: string, offset: number }|null {
+    if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+        return { encoding: 'utf-8', offset: 3 }
+    }
+    if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+        return { encoding: 'utf-16le', offset: 2 }
+    }
+    if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+        return { encoding: 'utf-16be', offset: 2 }
+    }
+    return null
+}
+
+let iconvLite: any|null|undefined
+function getIconvLite (): any|null {
+    if (iconvLite !== undefined) {
+        return iconvLite
+    }
+    try {
+        // Optional runtime dependency (Tabby may already ship it via transitive deps)
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        iconvLite = require('iconv-lite')
+    } catch {
+        iconvLite = null
+    }
+    return iconvLite
 }
 
 type RGB = { r: number, g: number, b: number }
@@ -215,6 +402,11 @@ function luminance (rgb: RGB): number {
             font-weight: 600;
         }
 
+        .editor-overlay-card {
+            max-width: 560px;
+            width: 100%;
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -234,6 +426,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     dirty = false
     status = 'Loading...'
 
+    encoding = 'utf-8'
+    encodings = ENCODINGS
+
+    readOnlyLargeFile = false
+    isBinary = false
+    forceOpenBinary = false
+    openError: string|null = null
+
     // When followTabbyTheme is on, darkMode is derived from Tabby's current UI colors.
     followTabbyTheme = true
     darkMode = false
@@ -252,6 +452,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private settingValue = false
     private languageId = 'plaintext'
     private themeSubscription?: { unsubscribe?: () => void }
+
+    private loadedBuffer: Buffer|null = null
+    private bomOffset = 0
+    private bomBytes: Buffer|null = null
+    private bomEncoding: string|null = null
+    private encodingAuto = true
 
     // Recorded remote mtime (seconds) for conflict detection
     private remoteMtime: number|null = null
@@ -281,16 +487,68 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.status = 'Loading...'
         try {
-            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
-            const text = await this.readRemoteFile()
+            this.loading = true
+            this.openError = null
+            this.isBinary = false
+            this.forceOpenBinary = false
+            this.readOnlyLargeFile = false
+
+            const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
+            this.remoteMtime = st.mtime
+
+            const fileSize = (typeof this.size === 'number' ? this.size : st.size) ?? null
+            if (typeof this.size !== 'number' && st.size !== null) {
+                this.size = st.size
+            }
+
+            if (fileSize !== null) {
+                if (fileSize > LARGE_FILE_REJECT_SIZE) {
+                    this.openError = `This file is too large to open (${formatBytes(fileSize)})`
+                    this.status = 'Too large'
+                    return
+                }
+
+                if (fileSize > LARGE_FILE_WARNING_SIZE) {
+                    const result = await this.platform.showMessageBox({
+                        type: 'warning',
+                        message: `This file is ${formatBytes(fileSize)}. Opening it may be slow.`,
+                        detail: 'Do you want to continue?',
+                        buttons: ['Open', 'Cancel'],
+                        defaultId: 0,
+                        cancelId: 1,
+                    })
+                    if (result.response !== 0) {
+                        this.destroy()
+                        return
+                    }
+                }
+
+                if (fileSize > LARGE_FILE_READONLY_SIZE) {
+                    this.readOnlyLargeFile = true
+                }
+            }
+
+            const buffer = await this.readRemoteFileBuffer()
+            this.loadedBuffer = buffer
+
+            this.isBinary = isBinaryContent(buffer)
+            if (this.isBinary && !this.forceOpenBinary) {
+                this.status = 'Binary file'
+                return
+            }
+
+            this.detectAndApplyEncoding(buffer)
+            const text = this.decodeBuffer(buffer, this.encoding)
+
             this.initEditorIfNeeded()
             this.setEditorValue(text)
-            this.loading = false
-            this.status = 'Ready'
+            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
         } catch (e: any) {
-            this.loading = false
             this.status = 'Failed to load'
-            this.notifications.error(e?.message ?? 'Failed to load file')
+            this.openError = e?.message ?? 'Failed to load file'
+            this.notifications.error(this.openError)
+        } finally {
+            this.loading = false
         }
     }
 
@@ -333,8 +591,17 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         if (s.includes('conflict')) {
             return 'bg-warning text-dark'
         }
+        if (s.includes('binary')) {
+            return 'bg-warning text-dark'
+        }
+        if (s.includes('read-only') || s.includes('readonly')) {
+            return 'bg-warning text-dark'
+        }
         if (s.includes('modified')) {
             return 'bg-warning text-dark'
+        }
+        if (s.includes('too large')) {
+            return 'bg-danger'
         }
         if (s.includes('failed') || s.includes('error')) {
             return 'bg-danger'
@@ -346,6 +613,99 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return 'bg-info text-dark'
         }
         return 'bg-secondary'
+    }
+
+    getEncodingLabel (): string {
+        const found = this.encodings.find(x => x.id === this.encoding)
+        return found?.label ?? this.encoding.toUpperCase()
+    }
+
+    openEncodingMenu (event?: MouseEvent): void {
+        if (this.openError || this.loading || this.saving || this.diffMode || (this.isBinary && !this.forceOpenBinary)) {
+            return
+        }
+
+        const menu: any[] = this.encodings.map(enc => ({
+            type: 'radio',
+            label: enc.label,
+            checked: this.encoding === enc.id,
+            click: () => this.changeEncoding(enc.id),
+        }))
+
+        this.platform.popupContextMenu(menu, event)
+    }
+
+    async changeEncoding (encoding: string): Promise<void> {
+        if (this.diffMode || this.loading || this.saving) {
+            return
+        }
+        if (encoding === this.encoding) {
+            return
+        }
+
+        if (this.dirty) {
+            const label = this.encodings.find(x => x.id === encoding)?.label ?? encoding
+            const result = await this.platform.showMessageBox({
+                type: 'warning',
+                message: `Discard local changes and reload using ${label}?`,
+                buttons: ['Reload', 'Cancel'],
+                defaultId: 0,
+                cancelId: 1,
+            })
+            if (result.response !== 0) {
+                return
+            }
+        }
+
+        this.encoding = encoding
+        this.encodingAuto = false
+
+        if (!this.loadedBuffer) {
+            try {
+                this.loadedBuffer = await this.readRemoteFileBuffer()
+                this.detectAndApplyEncoding(this.loadedBuffer)
+            } catch (e: any) {
+                this.notifications.error(e?.message ?? 'Failed to reload file for encoding change')
+                return
+            }
+        }
+
+        if (this.isBinary && !this.forceOpenBinary) {
+            this.status = 'Binary file'
+            return
+        }
+
+        try {
+            const text = this.decodeBuffer(this.loadedBuffer, this.encoding)
+            this.initEditorIfNeeded()
+            this.setEditorValue(text)
+            this.dirty = false
+            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+        } catch (e: any) {
+            this.notifications.error(e?.message ?? 'Failed to decode using selected encoding')
+        }
+    }
+
+    closeTab (): void {
+        this.destroy()
+    }
+
+    async forceOpenBinaryFile (): Promise<void> {
+        if (!this.isBinary || this.forceOpenBinary) {
+            return
+        }
+
+        this.forceOpenBinary = true
+        if (!this.loadedBuffer) {
+            this.loadedBuffer = await this.readRemoteFileBuffer()
+            this.detectAndApplyEncoding(this.loadedBuffer)
+        }
+
+        const text = this.decodeBuffer(this.loadedBuffer, this.encoding)
+        this.initEditorIfNeeded()
+        this.setEditorValue(text)
+        this.dirty = false
+        this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
     }
 
 
@@ -382,6 +742,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         if (!this.editor) {
             return false
         }
+        if (this.readOnlyLargeFile) {
+            this.notifications.notice('This file is read-only due to its size')
+            return false
+        }
+        if (this.isBinary && !this.forceOpenBinary) {
+            this.notifications.notice('This file appears to be binary')
+            return false
+        }
 
         const localText = this.editor.getValue()
 
@@ -395,14 +763,19 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 currentRemoteMtime !== this.remoteMtime
             ) {
                 this.status = 'Conflict detected'
-                const remoteText = await this.readRemoteFile()
+                const remoteBuffer = await this.readRemoteFileBuffer()
+                const remoteText = this.decodeBufferForDisplay(remoteBuffer)
                 this.showConflictDiff(remoteText, localText)
                 return false
             }
 
             this.status = 'Saving...'
-            await this.writeRemoteFile(localText)
+            const payload = this.buildWriteBuffer(localText)
+            await this.writeRemoteFileBuffer(payload)
             this.remoteMtime = await this.getRemoteMtime().catch(() => null)
+            this.loadedBuffer = payload
+            this.isBinary = isBinaryContent(payload)
+            this.detectAndApplyEncoding(payload)
             this.dirty = false
             this.status = 'Saved'
             return true
@@ -424,8 +797,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.saving = true
         this.status = 'Saving (force)...'
         try {
-            await this.writeRemoteFile(text)
+            const payload = this.buildWriteBuffer(text)
+            await this.writeRemoteFileBuffer(payload)
             this.remoteMtime = await this.getRemoteMtime().catch(() => null)
+            this.loadedBuffer = payload
+            this.isBinary = isBinaryContent(payload)
+            this.detectAndApplyEncoding(payload)
             this.exitDiffToEditor(text)
             this.dirty = false
             this.status = 'Saved'
@@ -445,11 +822,43 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.saving = true
         this.status = 'Reloading...'
         try {
-            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
-            const remoteText = await this.readRemoteFile()
+            const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
+            this.remoteMtime = st.mtime
+
+            if (st.size !== null) {
+                this.size = st.size
+                if (st.size > LARGE_FILE_REJECT_SIZE) {
+                    this.openError = `This file is too large to open (${formatBytes(st.size)})`
+                    this.status = 'Too large'
+                    this.disposeDiffEditor()
+                    this.editorHost?.nativeElement && (this.editorHost.nativeElement.innerHTML = '')
+                    this.diffMode = false
+                    this.dirty = false
+                    return
+                }
+                this.readOnlyLargeFile = st.size > LARGE_FILE_READONLY_SIZE
+            }
+
+            const buffer = await this.readRemoteFileBuffer()
+            this.loadedBuffer = buffer
+            this.isBinary = isBinaryContent(buffer)
+            this.forceOpenBinary = false
+
+            if (this.isBinary) {
+                this.disposeDiffEditor()
+                this.editorHost?.nativeElement && (this.editorHost.nativeElement.innerHTML = '')
+                this.diffMode = false
+                this.dirty = false
+                this.status = 'Binary file'
+                return
+            }
+
+            this.detectAndApplyEncoding(buffer)
+            const remoteText = this.decodeBuffer(buffer, this.encoding)
+
             this.exitDiffToEditor(remoteText)
             this.dirty = false
-            this.status = 'Ready'
+            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
         } catch (e: any) {
             this.status = 'Reload failed'
             this.notifications.error(e?.message ?? 'Failed to reload remote file')
@@ -535,7 +944,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             this.editor.setValue(text)
             this.dirty = false
-            this.editor.updateOptions({ readOnly: false })
+            this.editor.updateOptions({ readOnly: this.readOnlyLargeFile })
         } finally {
             this.settingValue = false
         }
@@ -735,43 +1144,183 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return this.sftp
     }
 
-    private async getRemoteMtime (): Promise<number|null> {
+    private detectAndApplyEncoding (buffer: Buffer): void {
+        const bom = detectBOM(buffer)
+        if (bom) {
+            this.bomOffset = bom.offset
+            this.bomBytes = buffer.slice(0, bom.offset)
+            this.bomEncoding = bom.encoding
+            if (this.encodingAuto) {
+                this.encoding = bom.encoding
+            }
+            return
+        }
+
+        this.bomOffset = 0
+        this.bomBytes = null
+        this.bomEncoding = null
+        if (!this.encodingAuto) {
+            return
+        }
+
+        const utf8 = this.tryDecode(buffer, 'utf-8')
+        if (utf8 !== null && !utf8.includes('\uFFFD')) {
+            this.encoding = 'utf-8'
+            return
+        }
+
+        const gbk = this.tryDecode(buffer, 'gbk')
+        if (gbk !== null && !gbk.includes('\uFFFD')) {
+            this.encoding = 'gbk'
+            return
+        }
+
+        this.encoding = 'iso-8859-1'
+    }
+
+    private tryDecode (buffer: Buffer, encoding: string): string|null {
+        const sample = buffer.slice(0, 64 * 1024)
+        try {
+            return new TextDecoder(encoding).decode(sample)
+        } catch {
+            return null
+        }
+    }
+
+    private decodeBuffer (buffer: Buffer, encoding: string): string {
+        try {
+            return new TextDecoder(encoding).decode(buffer.slice(this.bomOffset))
+        } catch {
+            throw new Error(`Unsupported encoding: ${encoding}`)
+        }
+    }
+
+    private decodeBufferForDisplay (buffer: Buffer): string {
+        const bom = detectBOM(buffer)
+        const offset = bom?.offset ?? 0
+        const encoding = bom && this.encodingAuto ? bom.encoding : this.encoding
+
+        try {
+            return new TextDecoder(encoding).decode(buffer.slice(offset))
+        } catch {
+            return new TextDecoder('utf-8').decode(buffer.slice(offset))
+        }
+    }
+
+    private normalizeEncodingId (encoding: string): string {
+        return (encoding ?? '').toLowerCase().replace(/[_\s-]/g, '')
+    }
+
+    private buildWriteBuffer (text: string): Buffer {
+        const body = this.encodeText(text, this.encoding)
+
+        if (
+            this.bomBytes &&
+            this.bomEncoding &&
+            this.normalizeEncodingId(this.bomEncoding) === this.normalizeEncodingId(this.encoding)
+        ) {
+            return Buffer.concat([this.bomBytes, body])
+        }
+
+        return body
+    }
+
+    private encodeText (text: string, encoding: string): Buffer {
+        const enc = (encoding ?? 'utf-8').toLowerCase()
+
+        if (enc === 'utf-8' || enc === 'utf8') {
+            return Buffer.from(text, 'utf8')
+        }
+        if (enc === 'utf-16le' || enc === 'utf16le') {
+            return Buffer.from(text, 'utf16le')
+        }
+        if (enc === 'iso-8859-1') {
+            return Buffer.from(text, 'latin1')
+        }
+
+        const iconv = getIconvLite()
+        if (!iconv) {
+            throw new Error(`Saving in ${encoding} is not supported (iconv-lite not found)`)
+        }
+
+        for (const candidate of this.getIconvCandidates(enc)) {
+            try {
+                return Buffer.from(iconv.encode(text, candidate))
+            } catch {
+                // try next
+            }
+        }
+
+        throw new Error(`Unsupported encoding for save: ${encoding}`)
+    }
+
+    private getIconvCandidates (encoding: string): string[] {
+        if (encoding === 'shift_jis') {
+            return ['shift_jis', 'shiftjis']
+        }
+        if (encoding === 'windows-1252') {
+            return ['windows-1252', 'win1252']
+        }
+        if (encoding === 'utf-16be' || encoding === 'utf16be') {
+            return ['utf-16be', 'utf16be', 'utf16-be']
+        }
+        return [encoding]
+    }
+
+    private async getRemoteStat (): Promise<{ mtime: number|null, size: number|null }> {
         const sftp: any = await this.getSftp()
         if (!sftp?.stat) {
-            return null
+            return { mtime: null, size: null }
         }
 
         const st: any = await sftp.stat(this.path)
+
+        let mtime: number|null = null
         if (typeof st?.mtime === 'number') {
-            return st.mtime
+            mtime = st.mtime
+        } else if (st?.modified instanceof Date) {
+            mtime = Math.floor(st.modified.getTime() / 1000)
         }
-        if (st?.modified instanceof Date) {
-            return Math.floor(st.modified.getTime() / 1000)
+
+        let size: number|null = null
+        if (typeof st?.size === 'number') {
+            size = st.size
         }
-        return null
+
+        return { mtime, size }
     }
 
-    private async readRemoteFile (): Promise<string> {
+    private async getRemoteMtime (): Promise<number|null> {
+        return (await this.getRemoteStat()).mtime
+    }
+
+    private async readRemoteFileBuffer (): Promise<Buffer> {
         const sftp = await this.getSftp()
         const russh = getRussh()
 
         const handle = await sftp.open(this.path, russh.OPEN_READ)
         try {
             const chunks: Buffer[] = []
+            let total = 0
             while (true) {
                 const chunk = await handle.read()
                 if (!chunk.length) {
                     break
                 }
-                chunks.push(Buffer.from(chunk))
+                const buf = Buffer.from(chunk)
+                chunks.push(buf)
+                total += buf.length
+                if (total > LARGE_FILE_REJECT_SIZE) {
+                    throw new Error('File is too large to open')
+                }
             }
-            return Buffer.concat(chunks).toString('utf-8')
+            return Buffer.concat(chunks)
         } finally {
             await handle.close().catch(() => null)
         }
     }
 
-    private async writeRemoteFile (contents: string): Promise<void> {
+    private async writeRemoteFileBuffer (contents: Buffer): Promise<void> {
         const sftp = await this.getSftp()
         const russh = getRussh()
 
@@ -779,7 +1328,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         let handle: any = null
         try {
             handle = await sftp.open(tempPath, russh.OPEN_WRITE | russh.OPEN_CREATE)
-            await handle.write(Buffer.from(contents, 'utf-8'))
+            await handle.write(contents)
             await handle.close()
             handle = null
 

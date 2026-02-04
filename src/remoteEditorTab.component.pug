@@ -1,7 +1,7 @@
 .d-flex.flex-column.w-100.h-100
     .editor-shell.d-flex.flex-column.w-100.h-100.min-vh-0.border.rounded
         .editor-toolbar.d-flex.align-items-center.gap-2.p-2.border-bottom.flex-wrap([class.editor-toolbar-dark]='darkMode', [class.editor-toolbar-light]='!darkMode')
-            button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='!dirty || saving || loading', [class.opacity-75]='saving || loading')
+            button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='openError || readOnlyLargeFile || (isBinary && !forceOpenBinary) || !dirty || saving || loading', [class.opacity-75]='saving || loading')
                 i.fas.fa-spinner.fa-spin.me-1(*ngIf='saving || loading')
                 i.fas.fa-save.fa-floppy-disk.me-1(*ngIf='!saving && !loading')
                 span {{saving ? 'Saving...' : (loading ? 'Loading...' : 'Save')}}
@@ -25,13 +25,31 @@
                     i.fas.fa-moon.me-1(*ngIf='darkMode')
                     i.fas.fa-sun.me-1(*ngIf='!darkMode')
                     span {{darkMode ? 'Dark' : 'Light'}}
+                button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='openEncodingMenu($event)', [disabled]='openError || loading || saving || diffMode || (isBinary && !forceOpenBinary)')
+                    i.fas.fa-language.me-1
+                    span {{getEncodingLabel()}}
 
             span.status-badge.badge.rounded-pill.text-nowrap([ngClass]='getStatusBadgeClass()') {{status}}
 
             span.flex-grow-1
 
             span.badge.bg-warning.text-dark(*ngIf='diffMode') Conflict
+            span.badge.bg-warning.text-dark(*ngIf='readOnlyLargeFile && !diffMode') Read-only
             span.badge.bg-warning.text-dark(*ngIf='dirty && !diffMode') Modified
 
         .flex-grow-1.min-vh-0.position-relative
-            .w-100.h-100(#editorHost)
+            .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='openError')
+                .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
+                    i.fas.fa-triangle-exclamation.fa-3x.mb-3.text-warning
+                    p.fw-semibold.mb-2 {{openError}}
+                    button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
+
+            .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary')
+                .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
+                    i.fas.fa-file-zipper.fa-3x.mb-3
+                    p.mb-3 This file appears to be binary and cannot be edited.
+                    .d-flex.justify-content-center.gap-2
+                        button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
+                        button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
+
+            .w-100.h-100(#editorHost, [hidden]='openError || (isBinary && !forceOpenBinary)')
