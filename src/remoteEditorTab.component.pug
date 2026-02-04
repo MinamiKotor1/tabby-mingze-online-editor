@@ -1,7 +1,13 @@
 .d-flex.flex-column.w-100.h-100
     .d-flex.align-items-center.mb-2.gap-2
-        button.btn.btn-primary((click)='save()', [disabled]='!dirty || saving || loading') Save
-        button.btn.btn-outline-secondary((click)='toggleDarkMode()') {{darkMode ? 'Light' : 'Dark'}}
+        button.btn.btn-primary(*ngIf='!diffMode', (click)='save()', [disabled]='!dirty || saving || loading') Save
+        button.btn.btn-danger(*ngIf='diffMode', (click)='resolveConflictUseLocal()', [disabled]='saving || loading') Use local version
+        button.btn.btn-outline-secondary(*ngIf='diffMode', (click)='resolveConflictUseRemote()', [disabled]='saving || loading') Use remote version
+        button.btn.btn-outline-secondary(*ngIf='diffMode', (click)='resolveConflictCancel()', [disabled]='saving || loading') Cancel
+
+        button.btn.btn-outline-secondary((click)='toggleFollowTheme()') {{followTabbyTheme ? 'Theme: Auto' : 'Theme: Manual'}}
+        button.btn.btn-outline-secondary((click)='toggleDarkMode()', *ngIf='!followTabbyTheme') {{darkMode ? 'Light' : 'Dark'}}
+
         span.text-muted {{status}}
         span.ms-auto.text-muted(*ngIf='dirty') Modified
 

@@ -1,5 +1,5 @@
 import { Component, ElementRef, Injector, ViewChild } from '@angular/core'
-import { BaseTabComponent, NotificationsService, PlatformService } from 'tabby-core'
+import { BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
@@ -88,6 +88,92 @@ function detectLanguageId (pathOrName: string): string {
     return 'plaintext'
 }
 
+type RGB = { r: number, g: number, b: number }
+
+function clamp255 (n: number): number {
+    if (!Number.isFinite(n)) {
+        return 0
+    }
+    return Math.max(0, Math.min(255, Math.round(n)))
+}
+
+function parseCssColor (value: string): RGB|null {
+    const color = (value ?? '').trim().toLowerCase()
+    if (!color || color === 'transparent') {
+        return null
+    }
+
+    if (color.startsWith('#')) {
+        const hex = color.slice(1)
+        if (hex.length === 3) {
+            const r = int(hex[0] + hex[0])
+            const g = int(hex[1] + hex[1])
+            const b = int(hex[2] + hex[2])
+            if (r === null || g === null || b === null) {
+                return null
+            }
+            return { r, g, b }
+        }
+        if (hex.length === 6 || hex.length === 8) {
+            const r = int(hex.slice(0, 2))
+            const g = int(hex.slice(2, 4))
+            const b = int(hex.slice(4, 6))
+            if (r === null || g === null || b === null) {
+                return null
+            }
+            return { r, g, b }
+        }
+        return null
+    }
+
+    const m = color.match(/^rgba?\((.*)\)$/)
+    if (m) {
+        const body = m[1]
+            .replace(/\s*\/\s*/g, ',')
+            .replace(/\s+/g, ',')
+        const parts = body.split(',').map(x => x.trim()).filter(Boolean)
+        if (parts.length < 3) {
+            return null
+        }
+
+        const r = parseChannel(parts[0])
+        const g = parseChannel(parts[1])
+        const b = parseChannel(parts[2])
+        if (r === null || g === null || b === null) {
+            return null
+        }
+        return { r, g, b }
+    }
+
+    return null
+
+    function int (s: string): number|null {
+        const v = Number.parseInt(s, 16)
+        return Number.isFinite(v) ? clamp255(v) : null
+    }
+
+    function parseChannel (s: string): number|null {
+        if (s.endsWith('%')) {
+            const v = Number.parseFloat(s.slice(0, -1))
+            return Number.isFinite(v) ? clamp255(255 * v / 100) : null
+        }
+        const v = Number.parseFloat(s)
+        return Number.isFinite(v) ? clamp255(v) : null
+    }
+}
+
+function srgbChannelToLinear (channel255: number): number {
+    const c = clamp255(channel255) / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+function luminance (rgb: RGB): number {
+    const r = srgbChannelToLinear(rgb.r)
+    const g = srgbChannelToLinear(rgb.g)
+    const b = srgbChannelToLinear(rgb.b)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
 @Component({
     selector: 'mingze-online-editor-tab',
     template: require('./remoteEditorTab.component.pug'),
@@ -110,19 +196,33 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     dirty = false
     status = 'Loading...'
 
+    // When followTabbyTheme is on, darkMode is derived from Tabby's current UI colors.
+    followTabbyTheme = true
     darkMode = false
+
+    // Conflict resolution / diff view
+    diffMode = false
 
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
 
     private sftp?: SFTPSession
     private editor?: import('monaco-editor').editor.IStandaloneCodeEditor
+    private diffEditor?: import('monaco-editor').editor.IStandaloneDiffEditor
+    private diffOriginalModel?: import('monaco-editor').editor.ITextModel
+    private diffModifiedModel?: import('monaco-editor').editor.ITextModel
+
     private settingValue = false
     private languageId = 'plaintext'
+    private themeSubscription?: { unsubscribe?: () => void }
+
+    // Recorded remote mtime (seconds) for conflict detection
+    private remoteMtime: number|null = null
 
     constructor (
         injector: Injector,
         private platform: PlatformService,
         private notifications: NotificationsService,
+        private themes: ThemesService,
     ) {
         super(injector)
         this.setTitle('Editor')
@@ -131,11 +231,19 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     async ngOnInit (): Promise<void> {
         this.setTitle(this.name ?? this.path ?? 'Editor')
-        this.darkMode = this.getStoredDarkMode()
         this.languageId = detectLanguageId(this.name ?? this.path ?? '')
+
+        this.followTabbyTheme = this.getStoredFollowTheme()
+        if (this.followTabbyTheme) {
+            this.darkMode = this.detectDarkModeFromTabby()
+        } else {
+            this.darkMode = this.getStoredDarkMode()
+        }
+        this.startFollowingTheme()
 
         this.status = 'Loading...'
         try {
+            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
             const text = await this.readRemoteFile()
             this.initEditorIfNeeded()
             this.setEditorValue(text)
@@ -149,19 +257,36 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     ngOnDestroy (): void {
-        this.editor?.dispose()
-        this.editor = undefined
+        this.themeSubscription?.unsubscribe?.()
+        this.disposeDiffEditor()
+        this.disposeEditor()
         this.sftp = undefined
         this.sshSession?.unref?.()
         super.ngOnDestroy()
     }
 
+    toggleFollowTheme (): void {
+        this.followTabbyTheme = !this.followTabbyTheme
+        this.storeFollowTheme(this.followTabbyTheme)
+
+        if (this.followTabbyTheme) {
+            this.darkMode = this.detectDarkModeFromTabby()
+        } else {
+            this.darkMode = this.getStoredDarkMode()
+        }
+        this.applyTheme()
+    }
+
     toggleDarkMode (): void {
+        // Switching manually disables follow mode.
+        if (this.followTabbyTheme) {
+            this.followTabbyTheme = false
+            this.storeFollowTheme(false)
+        }
+
         this.darkMode = !this.darkMode
         this.storeDarkMode(this.darkMode)
-        if (this.editor) {
-            this.applyTheme()
-        }
+        this.applyTheme()
     }
 
     async canClose (): Promise<boolean> {
@@ -187,6 +312,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     async save (): Promise<boolean> {
+        if (this.diffMode) {
+            this.notifications.notice('Resolve the conflict first')
+            return false
+        }
         if (this.saving || this.loading) {
             return false
         }
@@ -194,10 +323,26 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return false
         }
 
+        const localText = this.editor.getValue()
+
         this.saving = true
-        this.status = 'Saving...'
+        this.status = 'Checking...'
         try {
-            await this.writeRemoteFile(this.editor.getValue())
+            const currentRemoteMtime = await this.getRemoteMtime().catch(() => null)
+            if (
+                this.remoteMtime !== null &&
+                currentRemoteMtime !== null &&
+                currentRemoteMtime !== this.remoteMtime
+            ) {
+                this.status = 'Conflict detected'
+                const remoteText = await this.readRemoteFile()
+                this.showConflictDiff(remoteText, localText)
+                return false
+            }
+
+            this.status = 'Saving...'
+            await this.writeRemoteFile(localText)
+            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
             this.dirty = false
             this.status = 'Saved'
             return true
@@ -207,6 +352,84 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return false
         } finally {
             this.saving = false
+        }
+    }
+
+    async resolveConflictUseLocal (): Promise<void> {
+        if (!this.diffMode || this.saving || this.loading) {
+            return
+        }
+
+        const text = this.getDiffModifiedText()
+        this.saving = true
+        this.status = 'Saving (force)...'
+        try {
+            await this.writeRemoteFile(text)
+            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
+            this.exitDiffToEditor(text)
+            this.dirty = false
+            this.status = 'Saved'
+        } catch (e: any) {
+            this.status = 'Save failed'
+            this.notifications.error(e?.message ?? 'Failed to save file')
+        } finally {
+            this.saving = false
+        }
+    }
+
+    async resolveConflictUseRemote (): Promise<void> {
+        if (!this.diffMode || this.saving || this.loading) {
+            return
+        }
+
+        this.saving = true
+        this.status = 'Reloading...'
+        try {
+            this.remoteMtime = await this.getRemoteMtime().catch(() => null)
+            const remoteText = await this.readRemoteFile()
+            this.exitDiffToEditor(remoteText)
+            this.dirty = false
+            this.status = 'Ready'
+        } catch (e: any) {
+            this.status = 'Reload failed'
+            this.notifications.error(e?.message ?? 'Failed to reload remote file')
+        } finally {
+            this.saving = false
+        }
+    }
+
+    resolveConflictCancel (): void {
+        if (!this.diffMode) {
+            return
+        }
+
+        const text = this.getDiffModifiedText()
+        this.exitDiffToEditor(text)
+        this.dirty = true
+        this.status = 'Modified'
+    }
+
+    private startFollowingTheme (): void {
+        try {
+            this.themeSubscription?.unsubscribe?.()
+            this.themeSubscription = (this.themes as any)?.themeChanged$?.subscribe?.(() => {
+                if (!this.followTabbyTheme) {
+                    return
+                }
+                // themeChanged$ fires before applyThemeVariables(); delay one tick so CSS vars are updated.
+                setTimeout(() => {
+                    if (!this.followTabbyTheme) {
+                        return
+                    }
+                    const dark = this.detectDarkModeFromTabby()
+                    if (dark !== this.darkMode) {
+                        this.darkMode = dark
+                        this.applyTheme()
+                    }
+                }, 0)
+            })
+        } catch {
+            // ignore
         }
     }
 
@@ -244,9 +467,185 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         })
     }
 
+    private setEditorValue (text: string): void {
+        if (!this.editor) {
+            return
+        }
+        this.settingValue = true
+        try {
+            this.editor.setValue(text)
+            this.dirty = false
+            this.editor.updateOptions({ readOnly: false })
+        } finally {
+            this.settingValue = false
+        }
+    }
+
+    private showConflictDiff (remoteText: string, localText: string): void {
+        if (!this.editorHost?.nativeElement) {
+            throw new Error('Editor host element not ready')
+        }
+
+        const monaco = getMonaco()
+        ensureMonacoLanguagesLoaded()
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require('monaco-editor/min/vs/editor/editor.main.css')
+
+        this.diffMode = true
+        this.status = 'Conflict detected'
+
+        this.disposeEditor()
+        this.disposeDiffEditor()
+        this.editorHost.nativeElement.innerHTML = ''
+
+        this.applyTheme()
+
+        this.diffOriginalModel = monaco.editor.createModel(remoteText, this.languageId)
+        this.diffModifiedModel = monaco.editor.createModel(localText, this.languageId)
+
+        this.diffEditor = monaco.editor.createDiffEditor(this.editorHost.nativeElement, {
+            automaticLayout: true,
+            renderSideBySide: true,
+        })
+
+        this.diffEditor.setModel({
+            original: this.diffOriginalModel,
+            modified: this.diffModifiedModel,
+        })
+
+        this.diffEditor.getOriginalEditor().updateOptions({ readOnly: true })
+        const modifiedEditor = this.diffEditor.getModifiedEditor()
+        modifiedEditor.updateOptions({ readOnly: false })
+
+        modifiedEditor.onDidChangeModelContent(() => {
+            // Keep dirty state; conflict is still unresolved.
+            this.dirty = true
+            this.status = 'Conflict detected'
+        })
+
+        modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            this.notifications.notice('Resolve the conflict first')
+        })
+    }
+
+    private exitDiffToEditor (text: string): void {
+        if (!this.editorHost?.nativeElement) {
+            return
+        }
+
+        this.disposeDiffEditor()
+        this.editorHost.nativeElement.innerHTML = ''
+        this.diffMode = false
+
+        this.initEditorIfNeeded()
+        this.setEditorValue(text)
+    }
+
+    private getDiffModifiedText (): string {
+        const model = this.diffModifiedModel
+        if (!model) {
+            return ''
+        }
+        return model.getValue()
+    }
+
+    private disposeEditor (): void {
+        if (!this.editor) {
+            return
+        }
+        try {
+            this.editor.getModel()?.dispose?.()
+        } catch {
+            // ignore
+        }
+        try {
+            this.editor.dispose()
+        } catch {
+            // ignore
+        }
+        this.editor = undefined
+    }
+
+    private disposeDiffEditor (): void {
+        try {
+            this.diffEditor?.dispose()
+        } catch {
+            // ignore
+        }
+        this.diffEditor = undefined
+
+        try {
+            this.diffOriginalModel?.dispose()
+        } catch {
+            // ignore
+        }
+        this.diffOriginalModel = undefined
+
+        try {
+            this.diffModifiedModel?.dispose()
+        } catch {
+            // ignore
+        }
+        this.diffModifiedModel = undefined
+    }
+
     private applyTheme (): void {
         const monaco = getMonaco()
         monaco.editor.setTheme(this.darkMode ? 'vs-dark' : 'vs')
+    }
+
+    private detectDarkModeFromTabby (): boolean {
+        try {
+            const rootStyle = getComputedStyle(document.documentElement)
+            const bgVar =
+                rootStyle.getPropertyValue('--theme-bg').trim() ||
+                rootStyle.getPropertyValue('--bs-body-bg').trim()
+            const fgVar =
+                rootStyle.getPropertyValue('--theme-fg').trim() ||
+                rootStyle.getPropertyValue('--bs-body-color').trim()
+
+            const bodyStyle = getComputedStyle(document.body)
+            const bg = parseCssColor(bgVar) ?? parseCssColor(bodyStyle.backgroundColor)
+            const fg = parseCssColor(fgVar) ?? parseCssColor(bodyStyle.color)
+
+            if (bg && fg) {
+                return luminance(bg) < luminance(fg)
+            }
+        } catch {
+            // ignore
+        }
+
+        try {
+            const platformTheme = (this.platform as any)?.getTheme?.()
+            if (platformTheme === 'light') {
+                return false
+            }
+            if (platformTheme === 'dark') {
+                return true
+            }
+        } catch {
+            // ignore
+        }
+
+        // Tabby defaults to dark in most setups.
+        return true
+    }
+
+    private getStoredFollowTheme (): boolean {
+        try {
+            const v = localStorage.getItem('tabby-mingze-online-editor.followTheme')
+            return v === null ? true : v === '1'
+        } catch {
+            return true
+        }
+    }
+
+    private storeFollowTheme (enabled: boolean): void {
+        try {
+            localStorage.setItem('tabby-mingze-online-editor.followTheme', enabled ? '1' : '0')
+        } catch {
+            // ignore
+        }
     }
 
     private getStoredDarkMode (): boolean {
@@ -265,20 +664,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
-    private setEditorValue (text: string): void {
-        if (!this.editor) {
-            return
-        }
-        this.settingValue = true
-        try {
-            this.editor.setValue(text)
-            this.dirty = false
-            this.editor.updateOptions({ readOnly: false })
-        } finally {
-            this.settingValue = false
-        }
-    }
-
     private async getSftp (): Promise<SFTPSession> {
         if (this.sftp) {
             return this.sftp
@@ -288,6 +673,22 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
         this.sftp = await this.sshSession.openSFTP()
         return this.sftp
+    }
+
+    private async getRemoteMtime (): Promise<number|null> {
+        const sftp: any = await this.getSftp()
+        if (!sftp?.stat) {
+            return null
+        }
+
+        const st: any = await sftp.stat(this.path)
+        if (typeof st?.mtime === 'number') {
+            return st.mtime
+        }
+        if (st?.modified instanceof Date) {
+            return Math.floor(st.modified.getTime() / 1000)
+        }
+        return null
     }
 
     private async readRemoteFile (): Promise<string> {

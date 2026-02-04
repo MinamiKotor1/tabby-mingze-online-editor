@@ -39,6 +39,10 @@ declare module 'tabby-core' {
         showMessageBox (options: any): Promise<{ response: number }>
     }
 
+    export class ThemesService {
+        themeChanged$: any
+    }
+
     export class BaseTabComponent {
         title: string
         icon: string | null
@@ -69,10 +73,10 @@ declare module 'tabby-ssh' {
     }
 
     export class SFTPSession {
+        stat (path: string): Promise<any>
         open (path: string, mode: number): Promise<any>
         unlink (path: string): Promise<void>
         rename (oldPath: string, newPath: string): Promise<void>
         chmod (path: string, mode: any): Promise<void>
     }
 }
-
