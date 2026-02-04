@@ -531,7 +531,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private resizeStartWidth = 0
     private resizeMoveListener: ((e: MouseEvent) => void)|null = null
     private resizeUpListener: (() => void)|null = null
-    private destroyed = false
+    // Avoid clashing with Tabby BaseTabComponent internals (some versions use `destroyed`/`destroyed$`).
+    private componentDestroyed = false
 
     constructor (
         injector: Injector,
@@ -567,7 +568,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     ngOnDestroy (): void {
-        this.destroyed = true
+        this.componentDestroyed = true
         if (this.treeClickTimer !== null) {
             clearTimeout(this.treeClickTimer)
             this.treeClickTimer = null
@@ -966,7 +967,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     private safeDetectChanges (): void {
-        if (this.destroyed) {
+        if (this.componentDestroyed) {
             return
         }
         try {
