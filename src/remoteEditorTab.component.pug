@@ -1,15 +1,37 @@
 .d-flex.flex-column.w-100.h-100
-    .d-flex.align-items-center.mb-2.gap-2
-        button.btn.btn-primary(*ngIf='!diffMode', (click)='save()', [disabled]='!dirty || saving || loading') Save
-        button.btn.btn-danger(*ngIf='diffMode', (click)='resolveConflictUseLocal()', [disabled]='saving || loading') Use local version
-        button.btn.btn-outline-secondary(*ngIf='diffMode', (click)='resolveConflictUseRemote()', [disabled]='saving || loading') Use remote version
-        button.btn.btn-outline-secondary(*ngIf='diffMode', (click)='resolveConflictCancel()', [disabled]='saving || loading') Cancel
+    .editor-shell.d-flex.flex-column.w-100.h-100.min-vh-0.border.rounded
+        .editor-toolbar.d-flex.align-items-center.gap-2.p-2.border-bottom.flex-wrap([class.editor-toolbar-dark]='darkMode', [class.editor-toolbar-light]='!darkMode')
+            button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='!dirty || saving || loading', [class.opacity-75]='saving || loading')
+                i.fas.fa-spinner.fa-spin.me-1(*ngIf='saving || loading')
+                i.fas.fa-save.fa-floppy-disk.me-1(*ngIf='!saving && !loading')
+                span {{saving ? 'Saving...' : (loading ? 'Loading...' : 'Save')}}
 
-        button.btn.btn-outline-secondary((click)='toggleFollowTheme()') {{followTabbyTheme ? 'Theme: Auto' : 'Theme: Manual'}}
-        button.btn.btn-outline-secondary((click)='toggleDarkMode()', *ngIf='!followTabbyTheme') {{darkMode ? 'Light' : 'Dark'}}
+            .btn-group.btn-group-sm(*ngIf='diffMode', role='group')
+                button.btn.btn-danger.text-nowrap((click)='resolveConflictUseLocal()', [disabled]='saving || loading')
+                    i.fas.fa-upload.fa-cloud-arrow-up.me-1
+                    span Use local version
+                button.btn.btn-outline-secondary.text-nowrap((click)='resolveConflictUseRemote()', [disabled]='saving || loading')
+                    i.fas.fa-download.fa-cloud-arrow-down.me-1
+                    span Use remote version
+                button.btn.btn-outline-secondary.text-nowrap((click)='resolveConflictCancel()', [disabled]='saving || loading')
+                    i.fas.fa-xmark.fa-times.me-1
+                    span Cancel
 
-        span.text-muted {{status}}
-        span.ms-auto.text-muted(*ngIf='dirty') Modified
+            .btn-group.btn-group-sm(role='group')
+                button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='toggleFollowTheme()')
+                    i.fas.fa-gear.fa-cog.me-1
+                    span {{followTabbyTheme ? 'Theme: Auto' : 'Theme: Manual'}}
+                button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='toggleDarkMode()')
+                    i.fas.fa-moon.me-1(*ngIf='darkMode')
+                    i.fas.fa-sun.me-1(*ngIf='!darkMode')
+                    span {{darkMode ? 'Dark' : 'Light'}}
 
-    .flex-grow-1.min-vh-0.position-relative
-        .w-100.h-100.border.rounded(#editorHost)
+            span.status-badge.badge.rounded-pill.text-nowrap([ngClass]='getStatusBadgeClass()') {{status}}
+
+            span.flex-grow-1
+
+            span.badge.bg-warning.text-dark(*ngIf='diffMode') Conflict
+            span.badge.bg-warning.text-dark(*ngIf='dirty && !diffMode') Modified
+
+        .flex-grow-1.min-vh-0.position-relative
+            .w-100.h-100(#editorHost)

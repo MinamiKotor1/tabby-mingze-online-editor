@@ -181,6 +181,44 @@ function luminance (rgb: RGB): number {
     styles: [`
         :host { display: block; height: 100%; width: 100%; }
         .min-vh-0 { min-height: 0; }
+
+        .editor-shell {
+            background: var(--theme-bg, var(--bs-body-bg));
+        }
+
+        .editor-toolbar {
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.02));
+            border-bottom-color: var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08))) !important;
+        }
+
+        .editor-toolbar-dark {
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        .editor-toolbar-light {
+            background: rgba(0, 0, 0, 0.02);
+            border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+        }
+
+        .editor-toolbar .btn {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .editor-toolbar button[disabled] {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status-badge {
+            font-weight: 600;
+        }
+
+        :host ::ng-deep .monaco-editor,
+        :host ::ng-deep .monaco-diff-editor {
+            border-radius: 0 0 0.25rem 0.25rem;
+        }
     `],
 })
 export class RemoteEditorTabComponent extends BaseTabComponent {
@@ -288,6 +326,28 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.storeDarkMode(this.darkMode)
         this.applyTheme()
     }
+
+    getStatusBadgeClass (): string {
+        const s = (this.status ?? '').toLowerCase()
+
+        if (s.includes('conflict')) {
+            return 'bg-warning text-dark'
+        }
+        if (s.includes('modified')) {
+            return 'bg-warning text-dark'
+        }
+        if (s.includes('failed') || s.includes('error')) {
+            return 'bg-danger'
+        }
+        if (s.includes('saved') || s === 'ready') {
+            return 'bg-success'
+        }
+        if (s.includes('saving') || s.includes('checking') || s.includes('loading') || s.includes('reloading')) {
+            return 'bg-info text-dark'
+        }
+        return 'bg-secondary'
+    }
+
 
     async canClose (): Promise<boolean> {
         if (!this.dirty) {
