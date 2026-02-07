@@ -94,6 +94,73 @@ function ensureMonacoLanguagesLoaded (): void {
     // JSON is provided by a dedicated language service.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('monaco-editor/esm/vs/language/json/monaco.contribution')
+
+    // Advanced language services (formatting, completion, diagnostics).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/language/typescript/monaco.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/language/html/monaco.contribution')
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('monaco-editor/esm/vs/language/css/monaco.contribution')
+}
+
+let formattingProvidersRegistered = false
+function registerFormattingProviders (notifications: { error: (msg: string) => void, notice: (msg: string) => void }): void {
+    if (formattingProvidersRegistered) {
+        return
+    }
+    formattingProvidersRegistered = true
+
+    const monaco = getMonaco()
+
+    monaco.languages.registerDocumentFormattingEditProvider('json', {
+        displayName: 'Tabby JSON Formatter',
+        provideDocumentFormattingEdits (model: any, options: any) {
+            const text = model.getValue()
+            try {
+                const parsed = JSON.parse(text)
+                const tabSize = options.tabSize ?? 2
+                const insertSpaces = options.insertSpaces !== false
+                const indent = insertSpaces ? ' '.repeat(tabSize) : '\t'
+                const formatted = JSON.stringify(parsed, null, indent) + '\n'
+
+                return [{
+                    range: model.getFullModelRange(),
+                    text: formatted,
+                }]
+            } catch (e: any) {
+                const msg = e?.message ?? 'Invalid JSON'
+                const posMatch = msg.match(/position\s+(\d+)/i)
+                let detail = msg
+                if (posMatch) {
+                    const pos = parseInt(posMatch[1], 10)
+                    let line = 1
+                    for (let i = 0; i < pos && i < text.length; i++) {
+                        if (text[i] === '\n') {
+                            line++
+                        }
+                    }
+                    detail = `Line ${line}: ${msg}`
+                }
+                notifications.error(`JSON format failed: ${detail}`)
+                return []
+            }
+        },
+    })
+
+    const unsupported = ['yaml', 'python', 'shell', 'go', 'rust', 'ruby', 'perl', 'lua', 'ini', 'graphql', 'sql', 'mysql', 'pgsql', 'redis', 'dockerfile', 'markdown', 'plaintext']
+    for (const lang of unsupported) {
+        try {
+            monaco.languages.registerDocumentFormattingEditProvider(lang, {
+                provideDocumentFormattingEdits () {
+                    notifications.notice(`Formatting is not available for ${lang}`)
+                    return []
+                },
+            })
+        } catch {
+            // language may not exist
+        }
+    }
 }
 
 function getRussh (): any {
@@ -461,6 +528,20 @@ function luminance (rgb: RGB): number {
             color: white;
         }
 
+        .tree-refresh-btn {
+            opacity: 0;
+            font-size: 0.7em;
+            transition: opacity 0.15s;
+        }
+
+        .tree-item:hover .tree-refresh-btn {
+            opacity: 0.5;
+        }
+
+        .tree-refresh-btn:hover {
+            opacity: 1 !important;
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -501,6 +582,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     currentDir = ''
     dirContents: SFTPFileItem[] = []
     expandedDirs: Set<string> = new Set()
+    refreshingDirs: Set<string> = new Set()
     loadingDir = false
     dirLoadError: string|null = null
 
@@ -632,7 +714,37 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     refreshDirectory (): void {
-        void this.loadDirectoryRoot(this.currentDir)
+        void this.refreshRootDirectory()
+    }
+
+    async refreshNode (item: SFTPFileItem): Promise<void> {
+        if (!item.isDirectory) {
+            return
+        }
+
+        const key = this.normalizeRemotePath(item.fullPath)
+        this.refreshingDirs.add(key)
+        this.safeDetectChanges()
+
+        try {
+            const newChildren = await this.loadDirectory(key)
+            if (item.loaded && item.children) {
+                item.children = this.mergeChildren(item.children, newChildren)
+            } else {
+                item.children = newChildren
+            }
+            item.loaded = true
+            item.loadError = null
+            if (!this.expandedDirs.has(key)) {
+                this.expandedDirs.add(key)
+            }
+        } catch (e: any) {
+            item.loadError = e?.message ?? 'Failed to refresh'
+            this.notifications.error(item.loadError!)
+        } finally {
+            this.refreshingDirs.delete(key)
+            this.safeDetectChanges()
+        }
     }
 
     startResize (event: MouseEvent): void {
@@ -930,6 +1042,60 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } finally {
             this.loadingDir = false
             this.safeDetectChanges()
+        }
+    }
+
+    private async refreshRootDirectory (): Promise<void> {
+        this.loadingDir = true
+        this.dirLoadError = null
+        this.safeDetectChanges()
+        try {
+            const newChildren = await this.loadDirectory(this.currentDir)
+            this.dirContents = this.mergeChildren(this.dirContents, newChildren)
+        } catch (e: any) {
+            this.dirLoadError = e?.message ?? 'Failed to refresh'
+            this.notifications.error(this.dirLoadError!)
+        } finally {
+            this.loadingDir = false
+            this.safeDetectChanges()
+        }
+    }
+
+    private mergeChildren (oldChildren: SFTPFileItem[], newChildren: SFTPFileItem[]): SFTPFileItem[] {
+        const oldByPath = new Map<string, SFTPFileItem>()
+        for (const child of oldChildren) {
+            oldByPath.set(child.fullPath, child)
+        }
+
+        const newPaths = new Set(newChildren.filter(c => c.isDirectory).map(c => c.fullPath))
+        for (const old of oldChildren) {
+            if (old.isDirectory && !newPaths.has(old.fullPath)) {
+                this.removeExpandedRecursive(old)
+            }
+        }
+
+        return newChildren.map(item => {
+            if (!item.isDirectory) {
+                return item
+            }
+            const old = oldByPath.get(item.fullPath)
+            if (old?.loaded && this.expandedDirs.has(item.fullPath)) {
+                item.children = old.children
+                item.loaded = true
+                item.loadError = old.loadError
+            }
+            return item
+        })
+    }
+
+    private removeExpandedRecursive (item: SFTPFileItem): void {
+        this.expandedDirs.delete(item.fullPath)
+        if (item.children) {
+            for (const child of item.children) {
+                if (child.isDirectory) {
+                    this.removeExpandedRecursive(child)
+                }
+            }
         }
     }
 
@@ -1433,6 +1599,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const monaco = getMonaco()
         ensureMonacoLanguagesLoaded()
+        registerFormattingProviders(this.notifications)
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         require('monaco-editor/min/vs/editor/editor.main.css')
 

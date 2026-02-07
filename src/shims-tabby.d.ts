@@ -85,3 +85,35 @@ declare module 'tabby-ssh' {
         chmod (path: string, mode: any): Promise<void>
     }
 }
+
+declare module 'tabby-terminal' {
+    export abstract class TerminalDecorator {
+        attach (terminal: BaseTerminalTabComponent<any>): void
+        detach (terminal: BaseTerminalTabComponent<any>): void
+        protected subscribeUntilDetached (terminal: BaseTerminalTabComponent<any>, subscription?: any): void
+    }
+
+    export abstract class BaseTerminalTabComponent<P = any> {
+        session: BaseSession | null
+        sessionChanged$: any
+        input$: any
+    }
+
+    export class BaseSession {
+        readonly middleware: SessionMiddlewareStack
+    }
+
+    export class SessionMiddleware {
+        protected outputToSession: { next (data: Buffer): void, complete (): void }
+        protected outputToTerminal: { next (data: Buffer): void, complete (): void }
+        feedFromSession (data: Buffer): void
+        feedFromTerminal (data: Buffer): void
+        close (): void
+    }
+
+    export class SessionMiddlewareStack extends SessionMiddleware {
+        push (middleware: SessionMiddleware): void
+        unshift (middleware: SessionMiddleware): void
+        remove (middleware: SessionMiddleware): void
+    }
+}

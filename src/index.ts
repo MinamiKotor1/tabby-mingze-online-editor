@@ -14,8 +14,10 @@ import { NgModule } from '@angular/core'
 import { CommonModule } from '@angular/common'
 import TabbyCoreModule from 'tabby-core'
 import { SFTPContextMenuItemProvider } from 'tabby-ssh'
+import { TerminalDecorator } from 'tabby-terminal'
 
 import { EditInTabbySFTPContextMenu } from './sftpContextMenu'
+import { EditCommandDecorator } from './terminalDecorator'
 import { RemoteEditorTabComponent } from './remoteEditorTab.component'
 
 @NgModule({
@@ -28,6 +30,7 @@ import { RemoteEditorTabComponent } from './remoteEditorTab.component'
     ],
     providers: [
         { provide: SFTPContextMenuItemProvider, useClass: EditInTabbySFTPContextMenu, multi: true },
+        { provide: TerminalDecorator, useClass: EditCommandDecorator, multi: true },
     ],
 })
 export default class MingzeOnlineEditorModule { }

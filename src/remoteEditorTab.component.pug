@@ -92,7 +92,9 @@
                 (click)='onTreeItemClick(item)',
                 (dblclick)='onTreeItemDoubleClick(item)'
             )
+                i.fas.fa-spinner.fa-spin.me-2.text-muted(*ngIf='item.isDirectory && refreshingDirs.has(item.fullPath)')
                 i.fas.me-2(
+                    *ngIf='!item.isDirectory || !refreshingDirs.has(item.fullPath)',
                     [class.fa-folder]='item.isDirectory && !expandedDirs.has(item.fullPath)',
                     [class.fa-folder-open]='item.isDirectory && expandedDirs.has(item.fullPath)',
                     [class.fa-file]='!item.isDirectory',
@@ -100,7 +102,12 @@
                 )
                 i.fas.fa-lock.text-muted.me-2(*ngIf='item.isDirectory && item.loadError', [title]='item.loadError')
                 i.fas.fa-link.text-muted.me-2(*ngIf='item.isSymlink')
-                span.text-truncate {{item.name}}
+                span.text-truncate.flex-grow-1 {{item.name}}
+                i.fas.fa-sync-alt.tree-refresh-btn(
+                    *ngIf='item.isDirectory && !refreshingDirs.has(item.fullPath)',
+                    (click)='refreshNode(item); $event.stopPropagation()',
+                    title='Refresh folder'
+                )
 
             ng-container(*ngIf='item.isDirectory && expandedDirs.has(item.fullPath)')
                 .text-muted.small.py-1.pe-2(*ngIf='item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24') {{item.loadError}}
