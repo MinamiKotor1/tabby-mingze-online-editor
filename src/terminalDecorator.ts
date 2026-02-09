@@ -208,21 +208,20 @@ export class EditCommandDecorator extends TerminalDecorator {
     }
 
     attach (tab: BaseTerminalTabComponent<any>): void {
-        const sshSession: any = (tab as any).sshSession
-        if (!sshSession?.openSFTP) {
-            return
-        }
-
         setTimeout(() => {
-            this.attachMiddleware(tab, sshSession)
+            this.attachMiddleware(tab)
             this.subscribeUntilDetached(tab, tab.sessionChanged$?.subscribe?.(() => {
-                this.attachMiddleware(tab, sshSession)
+                this.attachMiddleware(tab)
             }))
         })
     }
 
-    private attachMiddleware (tab: BaseTerminalTabComponent<any>, sshSession: any): void {
+    private attachMiddleware (tab: BaseTerminalTabComponent<any>): void {
         if (!tab.session) {
+            return
+        }
+        const sshSession: any = (tab as any).sshSession
+        if (!sshSession?.openSFTP) {
             return
         }
         const mw = new EditCommandMiddleware(sshSession, this.app, this.notifications)
