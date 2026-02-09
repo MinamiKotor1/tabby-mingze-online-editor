@@ -869,6 +869,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 label: 'Open in New Tab',
                 click: () => this.onFileClick(item, true),
             })
+            menu.push({
+                label: 'Reload from Remote',
+                click: () => this.reloadFile(item),
+                enabled: item.fullPath === this.path,
+            })
             menu.push({ type: 'separator' })
         }
 
@@ -1076,6 +1081,66 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.safeDetectChanges()
         } catch (e: any) {
             this.notifications.error(e?.message ?? 'Delete failed')
+        }
+    }
+
+    async reloadFile (item: SFTPFileItem): Promise<void> {
+        if (item.fullPath !== this.path) {
+            return
+        }
+        if (this.diffMode) {
+            this.notifications.notice('Resolve the conflict first')
+            return
+        }
+        if (this.loading || this.saving) {
+            return
+        }
+
+        if (this.dirty) {
+            const result = await this.platform.showMessageBox({
+                type: 'warning',
+                message: 'Discard local changes and reload from remote?',
+                buttons: ['Reload', 'Cancel'],
+                defaultId: 0,
+                cancelId: 1,
+            })
+            if (result.response !== 0) {
+                return
+            }
+        }
+
+        this.loading = true
+        this.status = 'Reloading...'
+        this.safeDetectChanges()
+        try {
+            const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
+            this.remoteMtime = st.mtime
+            if (st.size !== null) {
+                this.size = st.size
+            }
+
+            const buffer = await this.readRemoteFileBuffer()
+            this.loadedBuffer = buffer
+            this.isBinary = isBinaryContent(buffer)
+
+            if (this.isBinary && !this.forceOpenBinary) {
+                this.forceOpenBinary = false
+                this.status = 'Binary file'
+                return
+            }
+
+            this.detectAndApplyEncoding(buffer)
+            const text = this.decodeBuffer(buffer, this.encoding)
+            this.initEditorIfNeeded()
+            this.setEditorValue(text)
+            this.dirty = false
+            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+        } catch (e: any) {
+            this.status = 'Reload failed'
+            this.notifications.error(e?.message ?? 'Failed to reload file')
+        } finally {
+            this.loading = false
+            this.safeDetectChanges()
         }
     }
 
