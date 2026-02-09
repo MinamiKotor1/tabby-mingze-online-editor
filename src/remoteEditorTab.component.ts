@@ -542,6 +542,18 @@ function luminance (rgb: RGB): number {
             opacity: 1 !important;
         }
 
+        .tree-edit-input {
+            background: var(--bs-body-bg, #fff);
+            color: var(--bs-body-color, #000);
+            border: 1px solid var(--bs-primary, #0d6efd);
+            border-radius: 2px;
+            padding: 0 4px;
+            font-size: inherit;
+            line-height: inherit;
+            outline: none;
+            min-width: 0;
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -585,6 +597,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     refreshingDirs: Set<string> = new Set()
     loadingDir = false
     dirLoadError: string|null = null
+    editingTreeItem: SFTPFileItem | null = null
+    editingTreeName = ''
+    editingParentDir: string | null = null
+    editingNewType: 'file' | 'folder' | null = null
 
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
 
@@ -815,6 +831,267 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.treeClickTimer = null
         }
         void this.onFileClick(item, true)
+    }
+
+    onTreeItemContextMenu (event: MouseEvent, item: SFTPFileItem): void {
+        event.preventDefault()
+        event.stopPropagation()
+        this.cancelEdit()
+
+        const menu: any[] = []
+
+        if (item.isDirectory) {
+            const expanded = this.expandedDirs.has(item.fullPath)
+            menu.push({
+                label: expanded ? 'Collapse' : 'Expand',
+                click: () => this.toggleDirectory(item),
+            })
+            menu.push({
+                label: 'Refresh',
+                click: () => this.refreshNode(item),
+            })
+            menu.push({ type: 'separator' })
+            menu.push({
+                label: 'New File',
+                click: () => this.startCreate(item, 'file'),
+            })
+            menu.push({
+                label: 'New Folder',
+                click: () => this.startCreate(item, 'folder'),
+            })
+            menu.push({ type: 'separator' })
+        } else {
+            menu.push({
+                label: 'Open',
+                click: () => this.onFileClick(item, false),
+            })
+            menu.push({
+                label: 'Open in New Tab',
+                click: () => this.onFileClick(item, true),
+            })
+            menu.push({ type: 'separator' })
+        }
+
+        menu.push({
+            label: 'Copy Path',
+            click: () => this.copyItemPath(item),
+        })
+        menu.push({ type: 'separator' })
+        menu.push({
+            label: 'Rename',
+            click: () => this.startRename(item),
+        })
+        menu.push({
+            label: 'Delete',
+            click: () => this.deleteItem(item),
+        })
+
+        this.platform.popupContextMenu(menu, event)
+    }
+
+    onSidebarContextMenu (event: MouseEvent): void {
+        event.preventDefault()
+        event.stopPropagation()
+        this.cancelEdit()
+
+        this.platform.popupContextMenu([
+            {
+                label: 'New File',
+                click: () => this.startCreateInCurrentDir('file'),
+            },
+            {
+                label: 'New Folder',
+                click: () => this.startCreateInCurrentDir('folder'),
+            },
+        ], event)
+    }
+
+    startRename (item: SFTPFileItem): void {
+        this.clearEdit()
+        this.editingTreeItem = item
+        this.editingTreeName = item.name
+        this.safeDetectChanges()
+        this.focusEditInput()
+    }
+
+    startCreate (dirItem: SFTPFileItem, type: 'file' | 'folder'): void {
+        this.clearEdit()
+        const doCreate = (): void => {
+            this.editingParentDir = dirItem.fullPath
+            this.editingNewType = type
+            this.editingTreeName = ''
+            this.safeDetectChanges()
+            this.focusEditInput()
+        }
+
+        if (!this.expandedDirs.has(dirItem.fullPath)) {
+            this.toggleDirectory(dirItem).then(() => doCreate())
+        } else {
+            doCreate()
+        }
+    }
+
+    startCreateInCurrentDir (type: 'file' | 'folder'): void {
+        this.clearEdit()
+        this.editingParentDir = this.currentDir
+        this.editingNewType = type
+        this.editingTreeName = ''
+        this.safeDetectChanges()
+        this.focusEditInput()
+    }
+
+    async commitEdit (): Promise<void> {
+        const name = this.editingTreeName.trim()
+
+        if (this.editingTreeItem) {
+            const item = this.editingTreeItem
+            this.clearEdit()
+            this.safeDetectChanges()
+
+            if (!name || name === item.name) {
+                return
+            }
+            if (name.includes('/') || name.includes('\\')) {
+                this.notifications.error('Invalid file name')
+                return
+            }
+
+            const parentDir = this.parentDir(item.fullPath)
+            const newPath = this.joinRemotePath(parentDir, name)
+
+            try {
+                const sftp = await this.getSftp()
+                await sftp.rename(item.fullPath, newPath)
+
+                const oldPath = item.fullPath
+                item.name = name
+                item.fullPath = newPath
+
+                if (oldPath === this.path) {
+                    this.path = newPath
+                    this.name = name
+                    this.setTitle(name)
+                    this.languageId = detectLanguageId(name)
+                    this.applyLanguageToEditor()
+                }
+
+                if (item.isDirectory) {
+                    this.updateExpandedPathsAfterRename(oldPath, newPath)
+                    if (item.children) {
+                        this.updateChildPaths(item.children, oldPath, newPath)
+                    }
+                }
+
+                this.safeDetectChanges()
+            } catch (e: any) {
+                this.notifications.error(e?.message ?? 'Rename failed')
+            }
+        } else if (this.editingParentDir) {
+            const parentDir = this.editingParentDir
+            const type = this.editingNewType
+            this.clearEdit()
+            this.safeDetectChanges()
+
+            if (!name) {
+                return
+            }
+            if (name.includes('/') || name.includes('\\')) {
+                this.notifications.error('Invalid file name')
+                return
+            }
+
+            const newPath = this.joinRemotePath(parentDir, name)
+
+            try {
+                const sftp: any = await this.getSftp()
+
+                if (type === 'folder') {
+                    await sftp.mkdir(newPath)
+                } else {
+                    const russh = getRussh()
+                    const handle = await sftp.open(newPath, russh.OPEN_WRITE | russh.OPEN_CREATE)
+                    await handle.close()
+                }
+
+                if (parentDir === this.currentDir) {
+                    await this.refreshRootDirectory()
+                } else {
+                    const parentItem = this.findTreeItem(this.dirContents, parentDir)
+                    if (parentItem) {
+                        await this.refreshNode(parentItem)
+                    }
+                }
+
+                this.safeDetectChanges()
+            } catch (e: any) {
+                this.notifications.error(e?.message ?? `Failed to create ${type}`)
+            }
+        }
+    }
+
+    cancelEdit (): void {
+        this.clearEdit()
+        this.safeDetectChanges()
+    }
+
+    onEditBlur (): void {
+        setTimeout(() => this.commitEdit(), 100)
+    }
+
+    async deleteItem (item: SFTPFileItem): Promise<void> {
+        if (item.fullPath === this.path) {
+            this.notifications.notice('Cannot delete the file currently being edited')
+            return
+        }
+
+        const msg = item.isDirectory
+            ? `Delete folder "${item.name}" and all its contents?`
+            : `Delete "${item.name}"?`
+
+        const result = await this.platform.showMessageBox({
+            type: 'warning',
+            message: msg,
+            buttons: ['Delete', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+        })
+
+        if (result.response !== 0) {
+            return
+        }
+
+        try {
+            const sftp: any = await this.getSftp()
+            if (item.isDirectory) {
+                await this.deleteRecursive(sftp, item.fullPath)
+            } else {
+                await sftp.unlink(item.fullPath)
+            }
+
+            this.removeTreeItem(this.dirContents, item.fullPath)
+            if (item.isDirectory) {
+                this.removeExpandedRecursive(item)
+            }
+
+            this.safeDetectChanges()
+        } catch (e: any) {
+            this.notifications.error(e?.message ?? 'Delete failed')
+        }
+    }
+
+    copyItemPath (item: SFTPFileItem): void {
+        const text = item.fullPath
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { clipboard } = require('electron')
+            clipboard.writeText(text)
+            this.notifications.notice('Path copied')
+        } catch {
+            navigator.clipboard?.writeText(text)?.then(
+                () => this.notifications.notice('Path copied'),
+                () => this.notifications.error('Failed to copy path'),
+            )
+        }
     }
 
     getStatusBadgeClass (): string {
@@ -1097,6 +1374,102 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 }
             }
         }
+    }
+
+    private clearEdit (): void {
+        this.editingTreeItem = null
+        this.editingParentDir = null
+        this.editingNewType = null
+        this.editingTreeName = ''
+    }
+
+    private async deleteRecursive (sftp: any, dirPath: string): Promise<void> {
+        const items: any[] = await sftp.readdir(dirPath)
+        for (const raw of items) {
+            const name = (raw?.name ?? raw?.filename ?? '').toString()
+            if (!name || name === '.' || name === '..') {
+                continue
+            }
+
+            const fullPath = this.joinRemotePath(dirPath, name)
+            const mode = typeof raw?.mode === 'number' ? raw.mode : 0
+            const isDir = typeof raw?.isDirectory === 'boolean'
+                ? raw.isDirectory
+                : ((mode & 0o170000) === 0o040000)
+
+            if (isDir) {
+                await this.deleteRecursive(sftp, fullPath)
+            } else {
+                await sftp.unlink(fullPath)
+            }
+        }
+        await sftp.rmdir(dirPath)
+    }
+
+    private removeTreeItem (items: SFTPFileItem[], fullPath: string): boolean {
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].fullPath === fullPath) {
+                items.splice(i, 1)
+                return true
+            }
+            if (items[i].children && this.removeTreeItem(items[i].children!, fullPath)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private findTreeItem (items: SFTPFileItem[], fullPath: string): SFTPFileItem | null {
+        for (const item of items) {
+            if (item.fullPath === fullPath) {
+                return item
+            }
+            if (item.children) {
+                const found = this.findTreeItem(item.children, fullPath)
+                if (found) {
+                    return found
+                }
+            }
+        }
+        return null
+    }
+
+    private updateExpandedPathsAfterRename (oldPath: string, newPath: string): void {
+        const toAdd: string[] = []
+        const toRemove: string[] = []
+        for (const p of this.expandedDirs) {
+            if (p === oldPath || p.startsWith(oldPath + '/')) {
+                toRemove.push(p)
+                toAdd.push(newPath + p.slice(oldPath.length))
+            }
+        }
+        for (const p of toRemove) {
+            this.expandedDirs.delete(p)
+        }
+        for (const p of toAdd) {
+            this.expandedDirs.add(p)
+        }
+    }
+
+    private updateChildPaths (children: SFTPFileItem[], oldParentPath: string, newParentPath: string): void {
+        for (const child of children) {
+            if (child.fullPath.startsWith(oldParentPath + '/')) {
+                child.fullPath = newParentPath + child.fullPath.slice(oldParentPath.length)
+            }
+            if (child.children) {
+                this.updateChildPaths(child.children, oldParentPath, newParentPath)
+            }
+        }
+    }
+
+    private focusEditInput (): void {
+        setTimeout(() => {
+            const el = document.querySelector('.tree-edit-input') as HTMLInputElement
+            if (el) {
+                el.focus()
+                el.select()
+            }
+        }, 50)
     }
 
     private async toggleDirectory (item: SFTPFileItem): Promise<void> {

@@ -80,6 +80,8 @@ declare module 'tabby-ssh' {
         stat (path: string): Promise<any>
         readdir (path: string): Promise<SFTPFile[]>
         open (path: string, mode: number): Promise<any>
+        mkdir (path: string): Promise<void>
+        rmdir (path: string): Promise<void>
         unlink (path: string): Promise<void>
         rename (oldPath: string, newPath: string): Promise<void>
         chmod (path: string, mode: any): Promise<void>

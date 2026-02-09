@@ -55,7 +55,10 @@
                     button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='Hide')
                         i.fas.fa-xmark.fa-times
 
-                .sidebar-tree.flex-grow-1.overflow-auto
+                .sidebar-tree.flex-grow-1.overflow-auto((contextmenu)='onSidebarContextMenu($event)')
+                    .tree-item.d-flex.align-items-center.py-1.pe-2(*ngIf='editingParentDir === currentDir && !editingTreeItem', [style.padding-left.px]='8')
+                        i.fas.me-2([class.fa-folder.text-warning]='editingNewType === "folder"', [class.fa-file]='editingNewType !== "folder"')
+                        input.tree-edit-input.flex-grow-1(type='text', [value]='editingTreeName', (input)='editingTreeName = $event.target.value', (keydown.enter)='commitEdit(); $event.preventDefault()', (keydown.escape)='cancelEdit(); $event.stopPropagation()', (blur)='onEditBlur()', (click)='$event.stopPropagation()')
                     .text-muted.small.p-2(*ngIf='loadingDir') Loading...
                     .text-danger.small.p-2(*ngIf='dirLoadError && !loadingDir') {{dirLoadError}}
                     .text-muted.small.p-2(*ngIf='!loadingDir && !dirLoadError && (!dirContents || !dirContents.length)') Empty
@@ -90,7 +93,8 @@
                 [class.active]='item.fullPath === path',
                 [style.padding-left.px]='depth * 16 + 8',
                 (click)='onTreeItemClick(item)',
-                (dblclick)='onTreeItemDoubleClick(item)'
+                (dblclick)='onTreeItemDoubleClick(item)',
+                (contextmenu)='onTreeItemContextMenu($event, item)'
             )
                 i.fas.fa-spinner.fa-spin.me-2.text-muted(*ngIf='item.isDirectory && refreshingDirs.has(item.fullPath)')
                 i.fas.me-2(
@@ -102,14 +106,18 @@
                 )
                 i.fas.fa-lock.text-muted.me-2(*ngIf='item.isDirectory && item.loadError', [title]='item.loadError')
                 i.fas.fa-link.text-muted.me-2(*ngIf='item.isSymlink')
-                span.text-truncate.flex-grow-1 {{item.name}}
+                span.text-truncate.flex-grow-1(*ngIf='editingTreeItem !== item') {{item.name}}
+                input.tree-edit-input.flex-grow-1(*ngIf='editingTreeItem === item', type='text', [value]='editingTreeName', (input)='editingTreeName = $event.target.value', (keydown.enter)='commitEdit(); $event.preventDefault()', (keydown.escape)='cancelEdit(); $event.stopPropagation()', (blur)='onEditBlur()', (click)='$event.stopPropagation()', (dblclick)='$event.stopPropagation()')
                 i.fas.fa-sync-alt.tree-refresh-btn(
-                    *ngIf='item.isDirectory && !refreshingDirs.has(item.fullPath)',
+                    *ngIf='item.isDirectory && !refreshingDirs.has(item.fullPath) && editingTreeItem !== item',
                     (click)='refreshNode(item); $event.stopPropagation()',
                     title='Refresh folder'
                 )
 
             ng-container(*ngIf='item.isDirectory && expandedDirs.has(item.fullPath)')
+                .tree-item.d-flex.align-items-center.py-1.pe-2(*ngIf='editingParentDir === item.fullPath', [style.padding-left.px]='(depth + 1) * 16 + 8')
+                    i.fas.me-2([class.fa-folder.text-warning]='editingNewType === "folder"', [class.fa-file]='editingNewType !== "folder"')
+                    input.tree-edit-input.flex-grow-1(type='text', [value]='editingTreeName', (input)='editingTreeName = $event.target.value', (keydown.enter)='commitEdit(); $event.preventDefault()', (keydown.escape)='cancelEdit(); $event.stopPropagation()', (blur)='onEditBlur()', (click)='$event.stopPropagation()')
                 .text-muted.small.py-1.pe-2(*ngIf='item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24') {{item.loadError}}
                 .text-muted.small.py-1.pe-2(*ngIf='!item.loaded && !item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24')
                     i.fas.fa-spinner.fa-spin.me-1
