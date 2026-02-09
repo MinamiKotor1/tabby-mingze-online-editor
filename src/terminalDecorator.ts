@@ -6,7 +6,7 @@ import { RemoteEditorTabComponent } from './remoteEditorTab.component'
 
 const CWD_START = '__TABBY_EDIT_CWD__'
 const CWD_END = '__TABBY_EDIT_CWD_END__'
-const EDIT_CMD_RE = /^(edit|code)\s+(.+)$/i
+const EDIT_CMD_RE = /^(mzedit)\s+(.+)$/i
 const CWD_TIMEOUT_MS = 5000
 
 class EditCommandMiddleware extends SessionMiddleware {
