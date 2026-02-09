@@ -1044,11 +1044,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     async deleteItem (item: SFTPFileItem): Promise<void> {
-        if (item.fullPath === this.path) {
-            this.notifications.notice('Cannot delete the file currently being edited')
-            return
-        }
-
         const msg = item.isDirectory
             ? `Delete folder "${item.name}" and all its contents?`
             : `Delete "${item.name}"?`
@@ -1076,6 +1071,18 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.removeTreeItem(this.dirContents, item.fullPath)
             if (item.isDirectory) {
                 this.removeExpandedRecursive(item)
+            }
+
+            if (item.fullPath === this.path) {
+                this.openError = 'File has been deleted'
+                this.status = 'Deleted'
+                this.dirty = false
+                this.diffMode = false
+                this.disposeDiffEditor()
+                this.disposeEditor()
+                if (this.editorHost?.nativeElement) {
+                    this.editorHost.nativeElement.innerHTML = ''
+                }
             }
 
             this.safeDetectChanges()
