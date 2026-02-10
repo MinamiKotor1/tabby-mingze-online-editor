@@ -2264,9 +2264,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
-            e.preventDefault()
-            e.stopImmediatePropagation()
-
             const editor = this.getActiveCodeEditor()
             if (!editor) {
                 return
@@ -2282,9 +2279,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             const text = this.readClipboardText()
-            if (text) {
-                editor.trigger('clipboard', 'type', { text })
+            if (!text) {
+                return
             }
+
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            editor.trigger('clipboard', 'type', { text })
         }
 
         const onClipboardBubble = (e: KeyboardEvent): void => {
