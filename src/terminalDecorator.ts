@@ -33,10 +33,6 @@ class EditCommandMiddleware extends SessionMiddleware {
 
         this.setupTimer = setTimeout(() => {
             this.settingUp = false
-            if (this.outputBuffer) {
-                this.outputToTerminal.next(Buffer.from(this.outputBuffer))
-                this.outputBuffer = ''
-            }
         }, 3000)
     }
 
@@ -57,14 +53,14 @@ class EditCommandMiddleware extends SessionMiddleware {
         if (this.settingUp) {
             const readyMarker = OSC_READY + OSC_TERM
             const idx = this.outputBuffer.indexOf(readyMarker)
-            if (idx < 0) {
-                return
-            }
-            this.outputBuffer = this.outputBuffer.slice(idx + readyMarker.length)
-            this.settingUp = false
-            if (this.setupTimer !== null) {
-                clearTimeout(this.setupTimer)
-                this.setupTimer = null
+            if (idx >= 0) {
+                this.outputBuffer = this.outputBuffer.slice(0, idx) +
+                    this.outputBuffer.slice(idx + readyMarker.length)
+                this.settingUp = false
+                if (this.setupTimer !== null) {
+                    clearTimeout(this.setupTimer)
+                    this.setupTimer = null
+                }
             }
         }
 
@@ -131,9 +127,11 @@ export class EditCommandDecorator extends TerminalDecorator {
     attach (tab: BaseTerminalTabComponent<any>): void {
         setTimeout(() => {
             try {
+                console.log('[mzedit] decorator attach, session:', !!tab.session)
                 this.attachMiddleware(tab)
                 const sub = tab.sessionChanged$.subscribe(() => {
                     try {
+                        console.log('[mzedit] sessionChanged$, session:', !!tab.session)
                         this.attachMiddleware(tab)
                     } catch (e: any) {
                         console.error('[mzedit] middleware attach failed:', e)
@@ -160,6 +158,7 @@ export class EditCommandDecorator extends TerminalDecorator {
         if (existing) {
             return
         }
+        console.log('[mzedit] injecting shell function')
         const mw = new EditCommandMiddleware(sshSession, this.app, this.notifications)
         tab.session.middleware.unshift(mw)
         mw.init()
