@@ -2363,7 +2363,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             const text = e.clipboardData?.getData('text/plain') ?? ''
-            if (!this.insertPlainText(editor, text)) {
+            if (this.insertPlainText(editor, text)) {
+                e.preventDefault()
+                e.stopImmediatePropagation()
+                return
+            }
+
+            const fallbackText = this.readClipboardText()
+            if (!this.insertPlainText(editor, fallbackText)) {
                 return
             }
 
