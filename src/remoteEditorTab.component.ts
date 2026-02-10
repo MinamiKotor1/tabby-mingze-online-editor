@@ -2077,6 +2077,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         })
 
         this.setupEditorClipboard()
+        this.ensureCodeEditorFocus(this.editor)
     }
 
     private setEditorValue (text: string): void {
@@ -2138,6 +2139,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             this.notifications.notice('Resolve the conflict first')
         })
+
+        this.ensureCodeEditorFocus(modifiedEditor)
     }
 
     private exitDiffToEditor (text: string): void {
@@ -2151,6 +2154,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.initEditorIfNeeded()
         this.setEditorValue(text)
+        this.ensureCodeEditorFocus(this.editor)
     }
 
     private getDiffModifiedText (): string {
@@ -2247,6 +2251,61 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return this.editor ?? null
     }
 
+    private isEditorReadOnly (editor: any): boolean {
+        if (!editor) {
+            return true
+        }
+
+        const monaco = getMonaco()
+        try {
+            return !!editor.getOption(monaco.editor.EditorOption.readOnly)
+        } catch {
+            return true
+        }
+    }
+
+    private insertPlainText (editor: any, text: string): boolean {
+        if (!editor || !text || this.isEditorReadOnly(editor)) {
+            return false
+        }
+
+        editor.trigger('clipboard', 'type', { text })
+        return true
+    }
+
+    private isPasteShortcut (e: KeyboardEvent): boolean {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+            return false
+        }
+
+        const key = (e.key ?? '').toLowerCase()
+        return key === 'v' || e.code === 'KeyV'
+    }
+
+    private isActiveElementInEditorHost (): boolean {
+        const host = this.editorHost?.nativeElement
+        const active = document.activeElement
+        return !!host && !!active && host.contains(active)
+    }
+
+    private focusCodeEditor (editor: any): void {
+        try {
+            editor?.focus?.()
+        } catch {
+            // ignore
+        }
+    }
+
+    private ensureCodeEditorFocus (editor: any): void {
+        this.focusCodeEditor(editor)
+        setTimeout(() => {
+            if (this.componentDestroyed) {
+                return
+            }
+            this.focusCodeEditor(editor)
+        }, 0)
+    }
+
     private setupEditorClipboard (): void {
         if (this.editorClipboardCleanup) {
             return
@@ -2256,11 +2315,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
 
-        const onPasteCapture = (e: KeyboardEvent): void => {
-            if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+        const onWindowPasteCapture = (e: KeyboardEvent): void => {
+            if (!this.isPasteShortcut(e)) {
                 return
             }
-            if (e.key.toLowerCase() !== 'v') {
+            if (!this.isActiveElementInEditorHost()) {
                 return
             }
 
@@ -2269,23 +2328,50 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
-            const monaco = getMonaco()
-            try {
-                if (editor.getOption(monaco.editor.EditorOption.readOnly)) {
-                    return
-                }
-            } catch {
-                return
-            }
-
             const text = this.readClipboardText()
-            if (!text) {
+            if (!this.insertPlainText(editor, text)) {
+                // Let native paste continue, but keep Tabby's global shortcut layer
+                // from swallowing this key when focus is already in Monaco.
+                e.stopImmediatePropagation()
                 return
             }
 
             e.preventDefault()
             e.stopImmediatePropagation()
-            editor.trigger('clipboard', 'type', { text })
+        }
+
+        const onPasteKeydownCapture = (e: KeyboardEvent): void => {
+            if (!this.isPasteShortcut(e)) {
+                return
+            }
+
+            const editor = this.getActiveCodeEditor()
+            if (!editor) {
+                return
+            }
+
+            const text = this.readClipboardText()
+            if (!this.insertPlainText(editor, text)) {
+                return
+            }
+
+            e.preventDefault()
+            e.stopImmediatePropagation()
+        }
+
+        const onPasteEventCapture = (e: ClipboardEvent): void => {
+            const editor = this.getActiveCodeEditor()
+            if (!editor) {
+                return
+            }
+
+            const text = e.clipboardData?.getData('text/plain') ?? ''
+            if (!this.insertPlainText(editor, text)) {
+                return
+            }
+
+            e.preventDefault()
+            e.stopImmediatePropagation()
         }
 
         const onClipboardBubble = (e: KeyboardEvent): void => {
@@ -2327,12 +2413,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.writeClipboardText(text)
 
             if (key === 'x') {
-                const monaco = getMonaco()
-                try {
-                    if (editor.getOption(monaco.editor.EditorOption.readOnly)) {
-                        return
-                    }
-                } catch {
+                if (this.isEditorReadOnly(editor)) {
                     return
                 }
                 editor.executeEdits('cut', [{
@@ -2343,12 +2424,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
-        el.addEventListener('keydown', onPasteCapture, true)
+        window.addEventListener('keydown', onWindowPasteCapture, true)
+        el.addEventListener('keydown', onPasteKeydownCapture, true)
+        el.addEventListener('paste', onPasteEventCapture, true)
         el.addEventListener('keydown', onCopyCapture, true)
         el.addEventListener('keydown', onClipboardBubble)
 
         this.editorClipboardCleanup = () => {
-            el.removeEventListener('keydown', onPasteCapture, true)
+            window.removeEventListener('keydown', onWindowPasteCapture, true)
+            el.removeEventListener('keydown', onPasteKeydownCapture, true)
+            el.removeEventListener('paste', onPasteEventCapture, true)
             el.removeEventListener('keydown', onCopyCapture, true)
             el.removeEventListener('keydown', onClipboardBubble)
         }
