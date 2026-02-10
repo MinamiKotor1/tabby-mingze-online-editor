@@ -34,6 +34,7 @@ class EditCommandMiddleware extends SessionMiddleware {
         if (str.length === 1) {
             const ch = str
             if (ch === '\r' || ch === '\n') {
+                console.log('[mzedit] Enter pressed, lineBuffer:', JSON.stringify(this.lineBuffer))
                 if (this.tryIntercept()) {
                     return
                 }
@@ -52,6 +53,7 @@ class EditCommandMiddleware extends SessionMiddleware {
         let intercepted = false
         for (const ch of str) {
             if (ch === '\r' || ch === '\n') {
+                console.log('[mzedit] Enter in multi-char, lineBuffer:', JSON.stringify(this.lineBuffer))
                 if (this.tryIntercept()) {
                     intercepted = true
                     break
