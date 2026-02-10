@@ -15,6 +15,7 @@ class EditCommandMiddleware extends SessionMiddleware {
     private cwdProbing = false
     private outputBuffer = ''
     private cwdTimer: ReturnType<typeof setTimeout> | null = null
+    private feedCount = 0
 
     constructor (
         private sshSession: any,
@@ -25,11 +26,13 @@ class EditCommandMiddleware extends SessionMiddleware {
     }
 
     feedFromTerminal (data: Buffer): void {
+        this.feedCount++
         if (this.cwdProbing) {
             return
         }
 
         const str = data.toString('utf-8')
+        console.log(`[mzedit] feedFromTerminal #${this.feedCount} len=${str.length} hex=${data.toString('hex').slice(0, 40)} buf=${JSON.stringify(this.lineBuffer).slice(0, 60)}`)
 
         if (str.length === 1) {
             const ch = str
