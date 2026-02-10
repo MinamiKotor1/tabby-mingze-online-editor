@@ -2080,6 +2080,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             this.save()
         })
+
+        this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
+            if (this.readOnlyLargeFile) {
+                return
+            }
+            const text = this.readClipboardText()
+            if (text) {
+                this.editor!.trigger('clipboard', 'type', { text })
+            }
+        })
     }
 
     private setEditorValue (text: string): void {
@@ -2140,6 +2150,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             this.notifications.notice('Resolve the conflict first')
+        })
+
+        modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
+            const text = this.readClipboardText()
+            if (text) {
+                modifiedEditor.trigger('clipboard', 'type', { text })
+            }
         })
     }
 
@@ -2207,6 +2224,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private applyTheme (): void {
         const monaco = getMonaco()
         monaco.editor.setTheme(this.darkMode ? 'vs-dark' : 'vs')
+    }
+
+    private readClipboardText (): string {
+        try {
+            const { clipboard } = require('electron')
+            return clipboard.readText() ?? ''
+        } catch {
+            return ''
+        }
     }
 
     private detectDarkModeFromTabby (): boolean {
