@@ -209,18 +209,21 @@ export class EditCommandDecorator extends TerminalDecorator {
     }
 
     attach (tab: BaseTerminalTabComponent<any>): void {
-        try {
-            const sub = tab.sessionChanged$.subscribe(() => {
-                try {
-                    this.attachMiddleware(tab)
-                } catch (e: any) {
-                    console.error('[mzedit] middleware attach failed:', e)
-                }
-            })
-            this.subscribeUntilDetached(tab, sub)
-        } catch (e: any) {
-            console.error('[mzedit] decorator attach failed:', e)
-        }
+        setTimeout(() => {
+            try {
+                this.attachMiddleware(tab)
+                const sub = tab.sessionChanged$.subscribe(() => {
+                    try {
+                        this.attachMiddleware(tab)
+                    } catch (e: any) {
+                        console.error('[mzedit] middleware attach failed:', e)
+                    }
+                })
+                this.subscribeUntilDetached(tab, sub)
+            } catch (e: any) {
+                console.error('[mzedit] decorator attach failed:', e)
+            }
+        })
     }
 
     private attachMiddleware (tab: BaseTerminalTabComponent<any>): void {
