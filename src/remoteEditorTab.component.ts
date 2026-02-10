@@ -2330,9 +2330,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             const text = this.readClipboardText()
             if (!this.insertPlainText(editor, text)) {
-                // Let native paste continue, but keep Tabby's global shortcut layer
-                // from swallowing this key when focus is already in Monaco.
-                e.stopImmediatePropagation()
                 return
             }
 
@@ -2424,11 +2421,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
+        const onHostMouseDown = (): void => {
+            this.ensureCodeEditorFocus(this.getActiveCodeEditor())
+        }
+
         window.addEventListener('keydown', onWindowPasteCapture, true)
         el.addEventListener('keydown', onPasteKeydownCapture, true)
         el.addEventListener('paste', onPasteEventCapture, true)
         el.addEventListener('keydown', onCopyCapture, true)
         el.addEventListener('keydown', onClipboardBubble)
+        el.addEventListener('mousedown', onHostMouseDown)
 
         this.editorClipboardCleanup = () => {
             window.removeEventListener('keydown', onWindowPasteCapture, true)
@@ -2436,6 +2438,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             el.removeEventListener('paste', onPasteEventCapture, true)
             el.removeEventListener('keydown', onCopyCapture, true)
             el.removeEventListener('keydown', onClipboardBubble)
+            el.removeEventListener('mousedown', onHostMouseDown)
         }
     }
 
