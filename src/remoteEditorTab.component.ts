@@ -624,7 +624,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     // Avoid clashing with Tabby BaseTabComponent internals (some versions use `destroyed`/`destroyed$`).
     private componentDestroyed = false
     private editorClipboardCleanup: (() => void)|null = null
-    private clipboardActionSeq = 0
 
     constructor (
         injector: Injector,
@@ -2063,6 +2062,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             language: this.languageId,
             automaticLayout: true,
             readOnly: true,
+            contextmenu: false,
         })
 
         this.editor.onDidChangeModelContent(() => {
@@ -2078,7 +2078,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         })
 
         this.setupEditorClipboard()
-        this.registerEditorClipboardActions(this.editor)
         this.ensureCodeEditorFocus(this.editor)
     }
 
@@ -2121,6 +2120,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.diffEditor = monaco.editor.createDiffEditor(this.editorHost.nativeElement, {
             automaticLayout: true,
             renderSideBySide: true,
+            contextmenu: false,
         })
 
         this.diffEditor.setModel({
@@ -2142,7 +2142,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.notifications.notice('Resolve the conflict first')
         })
 
-        this.registerEditorClipboardActions(modifiedEditor)
         this.ensureCodeEditorFocus(modifiedEditor)
     }
 
@@ -2297,26 +2296,128 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
-    private registerEditorClipboardActions (editor: any): void {
-        if (!editor?.addAction) {
+    private copySelectionToClipboard (editor: any): boolean {
+        const selection = editor?.getSelection?.()
+        const model = editor?.getModel?.()
+        if (!selection || !model || selection.isEmpty()) {
+            return false
+        }
+
+        const text = model.getValueInRange(selection)
+        if (!text) {
+            return false
+        }
+
+        this.writeClipboardText(text)
+        return true
+    }
+
+    private cutSelectionToClipboard (editor: any): boolean {
+        if (!editor || this.isEditorReadOnly(editor)) {
+            return false
+        }
+
+        const selection = editor.getSelection?.()
+        const model = editor.getModel?.()
+        if (!selection || !model || selection.isEmpty()) {
+            return false
+        }
+
+        const text = model.getValueInRange(selection)
+        if (!text) {
+            return false
+        }
+
+        this.writeClipboardText(text)
+
+        try {
+            editor.executeEdits('cut', [{
+                range: selection,
+                text: '',
+                forceMoveMarkers: true,
+            }])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private selectAllInEditor (editor: any): void {
+        if (!editor) {
             return
         }
 
+        this.focusCodeEditor(editor)
+
         try {
-            editor.addAction({
-                id: `tabby.clipboard.paste.${++this.clipboardActionSeq}`,
-                label: 'Paste (Tabby)',
-                contextMenuGroupId: '9_cutcopypaste',
-                contextMenuOrder: 1.6,
-                precondition: '!editorReadonly',
-                run: () => {
+            editor.trigger('keyboard', 'editor.action.selectAll', null)
+            return
+        } catch {
+            // ignore and fallback to explicit range selection
+        }
+
+        try {
+            const model = editor.getModel?.()
+            if (!model) {
+                return
+            }
+            const monaco = getMonaco()
+            const lineCount = Math.max(1, model.getLineCount?.() ?? 1)
+            const endColumn = model.getLineMaxColumn?.(lineCount) ?? 1
+            editor.setSelection?.(new monaco.Range(1, 1, lineCount, endColumn))
+        } catch {
+            // ignore
+        }
+    }
+
+    private showEditorContextMenu (editor: any, event: MouseEvent): void {
+        event.preventDefault()
+        event.stopPropagation()
+
+        this.ensureCodeEditorFocus(editor)
+
+        const selection = editor?.getSelection?.()
+        const hasSelection = !!selection && !selection.isEmpty()
+        const readOnly = this.isEditorReadOnly(editor)
+
+        const menu: any[] = [
+            {
+                label: 'Undo',
+                enabled: !readOnly,
+                click: () => editor.trigger('keyboard', 'undo', null),
+            },
+            {
+                label: 'Redo',
+                enabled: !readOnly,
+                click: () => editor.trigger('keyboard', 'redo', null),
+            },
+            { type: 'separator' },
+            {
+                label: 'Cut',
+                enabled: !readOnly && hasSelection,
+                click: () => this.cutSelectionToClipboard(editor),
+            },
+            {
+                label: 'Copy',
+                enabled: hasSelection,
+                click: () => this.copySelectionToClipboard(editor),
+            },
+            {
+                label: 'Paste',
+                enabled: !readOnly,
+                click: () => {
                     const text = this.readClipboardText()
                     this.insertPlainText(editor, text)
                 },
-            })
-        } catch {
-            // action can fail to register on some Monaco builds; ignore safely
-        }
+            },
+            { type: 'separator' },
+            {
+                label: 'Select All',
+                click: () => this.selectAllInEditor(editor),
+            },
+        ]
+
+        this.platform.popupContextMenu(menu, event)
     }
 
     private isPasteShortcut (e: KeyboardEvent): boolean {
@@ -2447,31 +2548,24 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             if (!editor) {
                 return
             }
-            const selection = editor.getSelection?.()
-            const model = editor.getModel?.()
-            if (!selection || !model || selection.isEmpty()) {
-                return
-            }
 
-            const text = model.getValueInRange(selection)
-            if (!text) {
+            const handled = key === 'x'
+                ? this.cutSelectionToClipboard(editor)
+                : this.copySelectionToClipboard(editor)
+            if (!handled) {
                 return
             }
 
             e.preventDefault()
             e.stopImmediatePropagation()
-            this.writeClipboardText(text)
+        }
 
-            if (key === 'x') {
-                if (this.isEditorReadOnly(editor)) {
-                    return
-                }
-                editor.executeEdits('cut', [{
-                    range: selection,
-                    text: '',
-                    forceMoveMarkers: true,
-                }])
+        const onEditorContextMenu = (e: MouseEvent): void => {
+            const editor = this.getActiveCodeEditor()
+            if (!editor) {
+                return
             }
+            this.showEditorContextMenu(editor, e)
         }
 
         const onHostMouseDown = (): void => {
@@ -2483,6 +2577,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         el.addEventListener('paste', onPasteEventCapture, true)
         el.addEventListener('keydown', onCopyCapture, true)
         el.addEventListener('keydown', onClipboardBubble)
+        el.addEventListener('contextmenu', onEditorContextMenu)
         el.addEventListener('mousedown', onHostMouseDown)
 
         this.editorClipboardCleanup = () => {
@@ -2491,6 +2586,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             el.removeEventListener('paste', onPasteEventCapture, true)
             el.removeEventListener('keydown', onCopyCapture, true)
             el.removeEventListener('keydown', onClipboardBubble)
+            el.removeEventListener('contextmenu', onEditorContextMenu)
             el.removeEventListener('mousedown', onHostMouseDown)
         }
     }
