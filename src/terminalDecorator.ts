@@ -208,12 +208,18 @@ export class EditCommandDecorator extends TerminalDecorator {
     }
 
     attach (tab: BaseTerminalTabComponent<any>): void {
-        setTimeout(() => {
-            this.attachMiddleware(tab)
-            this.subscribeUntilDetached(tab, tab.sessionChanged$?.subscribe?.(() => {
-                this.attachMiddleware(tab)
-            }))
-        })
+        try {
+            const sub = tab.sessionChanged$.subscribe(() => {
+                try {
+                    this.attachMiddleware(tab)
+                } catch (e: any) {
+                    console.error('[mzedit] middleware attach failed:', e)
+                }
+            })
+            this.subscribeUntilDetached(tab, sub)
+        } catch (e: any) {
+            console.error('[mzedit] decorator attach failed:', e)
+        }
     }
 
     private attachMiddleware (tab: BaseTerminalTabComponent<any>): void {
@@ -222,6 +228,12 @@ export class EditCommandDecorator extends TerminalDecorator {
         }
         const sshSession: any = (tab as any).sshSession
         if (!sshSession?.openSFTP) {
+            return
+        }
+        const existing = (tab.session.middleware as any).stack?.some?.(
+            (m: any) => m instanceof EditCommandMiddleware,
+        )
+        if (existing) {
             return
         }
         const mw = new EditCommandMiddleware(sshSession, this.app, this.notifications)
