@@ -9,6 +9,7 @@
   "typings": "dist/index.d.ts",
   "scripts": {
     "build": "webpack --progress --color",
+    "build:prod": "NODE_ENV=production webpack --progress --color",
     "watch": "webpack --progress --color --watch",
     "prepublishOnly": "yarn build"
   },

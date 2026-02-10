@@ -94,14 +94,6 @@ function ensureMonacoLanguagesLoaded (): void {
     // JSON is provided by a dedicated language service.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     require('monaco-editor/esm/vs/language/json/monaco.contribution')
-
-    // Advanced language services (formatting, completion, diagnostics).
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('monaco-editor/esm/vs/language/typescript/monaco.contribution')
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('monaco-editor/esm/vs/language/html/monaco.contribution')
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('monaco-editor/esm/vs/language/css/monaco.contribution')
 }
 
 let formattingProvidersRegistered = false
@@ -631,6 +623,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private resizeUpListener: (() => void)|null = null
     // Avoid clashing with Tabby BaseTabComponent internals (some versions use `destroyed`/`destroyed$`).
     private componentDestroyed = false
+    private editorClipboardCleanup: (() => void)|null = null
 
     constructor (
         injector: Injector,
@@ -682,6 +675,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.resizeUpListener = null
 
         this.themeSubscription?.unsubscribe?.()
+        this.editorClipboardCleanup?.()
+        this.editorClipboardCleanup = null
         this.disposeDiffEditor()
         this.disposeEditor()
         this.sftp = undefined
@@ -2081,15 +2076,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.save()
         })
 
-        this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
-            if (this.readOnlyLargeFile) {
-                return
-            }
-            const text = this.readClipboardText()
-            if (text) {
-                this.editor!.trigger('clipboard', 'type', { text })
-            }
-        })
+        this.setupEditorClipboard()
     }
 
     private setEditorValue (text: string): void {
@@ -2150,13 +2137,6 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             this.notifications.notice('Resolve the conflict first')
-        })
-
-        modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => {
-            const text = this.readClipboardText()
-            if (text) {
-                modifiedEditor.trigger('clipboard', 'type', { text })
-            }
         })
     }
 
@@ -2231,7 +2211,145 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             const { clipboard } = require('electron')
             return clipboard.readText() ?? ''
         } catch {
-            return ''
+            // electron clipboard not available
+        }
+        try {
+            const remote = require('@electron/remote')
+            return remote?.clipboard?.readText?.() ?? ''
+        } catch {
+            // @electron/remote not available
+        }
+        return ''
+    }
+
+    private writeClipboardText (text: string): void {
+        try {
+            const { clipboard } = require('electron')
+            clipboard.writeText(text)
+            return
+        } catch {
+            // electron clipboard not available
+        }
+        try {
+            const remote = require('@electron/remote')
+            remote?.clipboard?.writeText?.(text)
+            return
+        } catch {
+            // @electron/remote not available
+        }
+        navigator.clipboard?.writeText(text)?.catch(() => {})
+    }
+
+    private getActiveCodeEditor (): any {
+        if (this.diffMode && this.diffEditor) {
+            return this.diffEditor.getModifiedEditor()
+        }
+        return this.editor ?? null
+    }
+
+    private setupEditorClipboard (): void {
+        if (this.editorClipboardCleanup) {
+            return
+        }
+        const el = this.editorHost?.nativeElement
+        if (!el) {
+            return
+        }
+
+        const onPasteCapture = (e: KeyboardEvent): void => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+                return
+            }
+            if (e.key.toLowerCase() !== 'v') {
+                return
+            }
+
+            e.preventDefault()
+            e.stopImmediatePropagation()
+
+            const editor = this.getActiveCodeEditor()
+            if (!editor) {
+                return
+            }
+
+            const monaco = getMonaco()
+            try {
+                if (editor.getOption(monaco.editor.EditorOption.readOnly)) {
+                    return
+                }
+            } catch {
+                return
+            }
+
+            const text = this.readClipboardText()
+            if (text) {
+                editor.trigger('clipboard', 'type', { text })
+            }
+        }
+
+        const onClipboardBubble = (e: KeyboardEvent): void => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+                return
+            }
+            const key = e.key.toLowerCase()
+            if (key === 'c' || key === 'x' || key === 'a' || key === 'z' || key === 'y') {
+                e.stopPropagation()
+            }
+        }
+
+        const onCopyCapture = (e: KeyboardEvent): void => {
+            if (!(e.ctrlKey || e.metaKey) || e.altKey) {
+                return
+            }
+            const key = e.key.toLowerCase()
+            if (key !== 'c' && key !== 'x') {
+                return
+            }
+
+            const editor = this.getActiveCodeEditor()
+            if (!editor) {
+                return
+            }
+            const selection = editor.getSelection?.()
+            const model = editor.getModel?.()
+            if (!selection || !model || selection.isEmpty()) {
+                return
+            }
+
+            const text = model.getValueInRange(selection)
+            if (!text) {
+                return
+            }
+
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            this.writeClipboardText(text)
+
+            if (key === 'x') {
+                const monaco = getMonaco()
+                try {
+                    if (editor.getOption(monaco.editor.EditorOption.readOnly)) {
+                        return
+                    }
+                } catch {
+                    return
+                }
+                editor.executeEdits('cut', [{
+                    range: selection,
+                    text: '',
+                    forceMoveMarkers: true,
+                }])
+            }
+        }
+
+        el.addEventListener('keydown', onPasteCapture, true)
+        el.addEventListener('keydown', onCopyCapture, true)
+        el.addEventListener('keydown', onClipboardBubble)
+
+        this.editorClipboardCleanup = () => {
+            el.removeEventListener('keydown', onPasteCapture, true)
+            el.removeEventListener('keydown', onCopyCapture, true)
+            el.removeEventListener('keydown', onClipboardBubble)
         }
     }
 
