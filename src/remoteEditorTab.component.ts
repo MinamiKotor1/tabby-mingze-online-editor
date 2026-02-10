@@ -1820,6 +1820,19 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
             return true
         } catch (e: any) {
+            const errMsg = e?.message ?? e?.toString?.() ?? ''
+            if (/no.?such.?file|NoSuchFile/i.test(errMsg)) {
+                this.loadedBuffer = Buffer.alloc(0)
+                this.isBinary = false
+                this.encoding = 'utf-8'
+                this.remoteMtime = null
+                this.initEditorIfNeeded()
+                this.applyLanguageToEditor()
+                this.setEditorValue('')
+                this.dirty = false
+                this.status = 'New file'
+                return true
+            }
             this.status = 'Failed to load'
             this.openError = e?.message ?? 'Failed to load file'
             this.notifications.error(this.openError)

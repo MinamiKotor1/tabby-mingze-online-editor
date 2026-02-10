@@ -135,9 +135,10 @@ class EditCommandMiddleware extends SessionMiddleware {
         this.cwdProbing = true
         this.outputBuffer = ''
 
-        // Use shell to resolve relative/~ paths via realpath or readlink -f fallback.
+        // Split markers via a shell variable so the complete marker string never
+        // appears in the echoed command text — only in the expanded output.
         const escaped = rawPath.replace(/'/g, "'\\''")
-        const cmd = `echo "${CWD_START}$(realpath -m '${escaped}' 2>/dev/null || readlink -f '${escaped}' 2>/dev/null || echo '${escaped}')${CWD_END}"\n`
+        const cmd = `_mze_p=__TABBY_EDIT; echo "\${_mze_p}_CWD__$(realpath -m '${escaped}' 2>/dev/null || readlink -f '${escaped}' 2>/dev/null || echo '${escaped}')\${_mze_p}_CWD_END__"\n`
         this.outputToSession.next(Buffer.from(cmd))
 
         this.cwdTimer = setTimeout(() => {
