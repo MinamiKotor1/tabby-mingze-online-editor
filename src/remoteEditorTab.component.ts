@@ -624,6 +624,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     // Avoid clashing with Tabby BaseTabComponent internals (some versions use `destroyed`/`destroyed$`).
     private componentDestroyed = false
     private editorClipboardCleanup: (() => void)|null = null
+    private clipboardActionSeq = 0
 
     constructor (
         injector: Injector,
@@ -2077,6 +2078,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         })
 
         this.setupEditorClipboard()
+        this.registerEditorClipboardActions(this.editor)
         this.ensureCodeEditorFocus(this.editor)
     }
 
@@ -2140,6 +2142,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.notifications.notice('Resolve the conflict first')
         })
 
+        this.registerEditorClipboardActions(modifiedEditor)
         this.ensureCodeEditorFocus(modifiedEditor)
     }
 
@@ -2269,8 +2272,51 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return false
         }
 
-        editor.trigger('clipboard', 'type', { text })
-        return true
+        this.focusCodeEditor(editor)
+
+        try {
+            editor.trigger('clipboard', 'type', { text })
+            return true
+        } catch {
+            // ignore and fallback to raw edit insertion
+        }
+
+        try {
+            const selection = editor.getSelection?.()
+            if (!selection) {
+                return false
+            }
+            editor.executeEdits('clipboard', [{
+                range: selection,
+                text,
+                forceMoveMarkers: true,
+            }])
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private registerEditorClipboardActions (editor: any): void {
+        if (!editor?.addAction) {
+            return
+        }
+
+        try {
+            editor.addAction({
+                id: `tabby.clipboard.paste.${++this.clipboardActionSeq}`,
+                label: 'Paste (Tabby)',
+                contextMenuGroupId: '9_cutcopypaste',
+                contextMenuOrder: 1.6,
+                precondition: '!editorReadonly',
+                run: () => {
+                    const text = this.readClipboardText()
+                    this.insertPlainText(editor, text)
+                },
+            })
+        } catch {
+            // action can fail to register on some Monaco builds; ignore safely
+        }
     }
 
     private isPasteShortcut (e: KeyboardEvent): boolean {
