@@ -3006,15 +3006,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
-            const textContent = await page.getTextContent()
-            if (renderToken !== this.pdfRenderToken) {
-                return
-            }
-
             const textDivs: HTMLElement[] = []
             const textDivProperties = new WeakMap<HTMLElement, object>()
             const textLayerTask = pdfjs.renderTextLayer({
-                textContentSource: textContent,
+                textContentSource: page.streamTextContent({
+                    includeMarkedContent: true,
+                    disableNormalization: true,
+                }),
                 container: textLayer,
                 viewport,
                 textDivs,
@@ -3028,6 +3026,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
+            this.applyPdfTextLayerInlineStyles(textLayer, textDivs)
             this.ensurePdfTextLayerSelectionTail(textLayer)
         } catch (error: any) {
             const message = `${error?.message ?? ''}`.toLowerCase()
@@ -3060,6 +3059,44 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         const endOfContent = document.createElement('div')
         endOfContent.className = 'endOfContent'
         textLayer.append(endOfContent)
+    }
+
+    private applyPdfTextLayerInlineStyles (textLayer: HTMLElement, textDivs: HTMLElement[]): void {
+        textLayer.style.position = 'absolute'
+        textLayer.style.inset = '0'
+        textLayer.style.overflow = 'hidden'
+        textLayer.style.opacity = '0.25'
+        textLayer.style.lineHeight = '1'
+        textLayer.style.transformOrigin = '0 0'
+        textLayer.style.zIndex = '2'
+        textLayer.style.userSelect = 'text'
+        ;(textLayer.style as any).webkitUserSelect = 'text'
+
+        for (const textDiv of textDivs) {
+            textDiv.style.color = 'transparent'
+            textDiv.style.position = 'absolute'
+            textDiv.style.whiteSpace = 'pre'
+            textDiv.style.cursor = 'text'
+            textDiv.style.transformOrigin = '0 0'
+            textDiv.style.userSelect = 'text'
+            ;(textDiv.style as any).webkitUserSelect = 'text'
+        }
+
+        const markedContentDivs = textLayer.querySelectorAll('span.markedContent')
+        for (const markedContentDiv of Array.from(markedContentDivs)) {
+            const el = markedContentDiv as HTMLElement
+            el.style.top = '0'
+            el.style.height = '0'
+        }
+
+        const lineBreaks = textLayer.querySelectorAll('br')
+        for (const lineBreak of Array.from(lineBreaks)) {
+            const el = lineBreak as HTMLElement
+            el.style.position = 'absolute'
+            el.style.whiteSpace = 'pre'
+            el.style.cursor = 'text'
+            el.style.transformOrigin = '0 0'
+        }
     }
 
     private updatePdfTextLayerSelectionHandle (event: MouseEvent): void {
