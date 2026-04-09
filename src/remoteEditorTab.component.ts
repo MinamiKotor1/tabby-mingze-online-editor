@@ -197,7 +197,7 @@ function registerFormattingProviders (notifications: { error: (msg: string) => v
     const monaco = getMonaco()
 
     monaco.languages.registerDocumentFormattingEditProvider('json', {
-        displayName: 'Tabby JSON Formatter',
+        displayName: 'Tabby JSON 格式化',
         provideDocumentFormattingEdits (model: any, options: any) {
             const text = model.getValue()
             try {
@@ -212,7 +212,7 @@ function registerFormattingProviders (notifications: { error: (msg: string) => v
                     text: formatted,
                 }]
             } catch (e: any) {
-                const msg = e?.message ?? 'Invalid JSON'
+                const msg = e?.message ?? '无效的 JSON'
                 const posMatch = msg.match(/position\s+(\d+)/i)
                 let detail = msg
                 if (posMatch) {
@@ -223,9 +223,9 @@ function registerFormattingProviders (notifications: { error: (msg: string) => v
                             line++
                         }
                     }
-                    detail = `Line ${line}: ${msg}`
+                    detail = `第 ${line} 行：${msg}`
                 }
-                notifications.error(`JSON format failed: ${detail}`)
+                notifications.error(`JSON 格式化失败：${detail}`)
                 return []
             }
         },
@@ -236,7 +236,7 @@ function registerFormattingProviders (notifications: { error: (msg: string) => v
         try {
             monaco.languages.registerDocumentFormattingEditProvider(lang, {
                 provideDocumentFormattingEdits () {
-                    notifications.notice(`Formatting is not available for ${lang}`)
+                    notifications.notice(`暂不支持 ${lang} 的格式化`)
                     return []
                 },
             })
@@ -411,12 +411,12 @@ type EncodingOption = { id: string, label: string }
 
 const ENCODINGS: EncodingOption[] = [
     { id: 'utf-8', label: 'UTF-8' },
-    { id: 'gbk', label: 'GBK (Simplified Chinese)' },
-    { id: 'gb18030', label: 'GB18030 (Simplified Chinese)' },
-    { id: 'big5', label: 'Big5 (Traditional Chinese)' },
-    { id: 'shift_jis', label: 'Shift_JIS (Japanese)' },
-    { id: 'euc-kr', label: 'EUC-KR (Korean)' },
-    { id: 'iso-8859-1', label: 'ISO-8859-1 (Latin-1)' },
+    { id: 'gbk', label: 'GBK（简体中文）' },
+    { id: 'gb18030', label: 'GB18030（简体中文）' },
+    { id: 'big5', label: 'Big5（繁体中文）' },
+    { id: 'shift_jis', label: 'Shift_JIS（日语）' },
+    { id: 'euc-kr', label: 'EUC-KR（韩语）' },
+    { id: 'iso-8859-1', label: 'ISO-8859-1（西欧）' },
     { id: 'windows-1252', label: 'Windows-1252' },
 ]
 
@@ -1146,7 +1146,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     loading = true
     saving = false
     dirty = false
-    status = 'Loading...'
+    status = '加载中...'
 
     encoding = 'utf-8'
     encodings = ENCODINGS
@@ -1172,7 +1172,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     translationConfigError = ''
 
     translationButtonVisible = false
-    translationButtonLabel = 'AI'
+    translationButtonLabel = '助手'
     translationButtonTop = 0
     translationButtonLeft = 0
 
@@ -1284,12 +1284,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         private cdr: ChangeDetectorRef,
     ) {
         super(injector)
-        this.setTitle('Editor')
+        this.setTitle('编辑器')
         this.icon = 'fas fa-pen-to-square'
     }
 
     async ngOnInit (): Promise<void> {
-        this.setTitle(this.name ?? this.path ?? 'Editor')
+        this.setTitle(this.name ?? this.path ?? '编辑器')
         this.languageId = detectLanguageId(this.name ?? this.path ?? '')
         this.translationSettings = this.getStoredTranslationSettings()
         this.translationSettingsDraft = { ...this.translationSettings }
@@ -1430,7 +1430,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 this.expandedDirs.add(key)
             }
         } catch (e: any) {
-            item.loadError = e?.message ?? 'Failed to refresh'
+            item.loadError = e?.message ?? '刷新失败'
             this.notifications.error(item.loadError!)
         } finally {
             this.refreshingDirs.delete(key)
@@ -1518,34 +1518,34 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         if (item.isDirectory) {
             const expanded = this.expandedDirs.has(item.fullPath)
             menu.push({
-                label: expanded ? 'Collapse' : 'Expand',
+                label: expanded ? '收起' : '展开',
                 click: () => this.toggleDirectory(item),
             })
             menu.push({
-                label: 'Refresh',
+                label: '刷新',
                 click: () => this.refreshNode(item),
             })
             menu.push({ type: 'separator' })
             menu.push({
-                label: 'New File',
+                label: '新建文件',
                 click: () => this.startCreate(item, 'file'),
             })
             menu.push({
-                label: 'New Folder',
+                label: '新建文件夹',
                 click: () => this.startCreate(item, 'folder'),
             })
             menu.push({ type: 'separator' })
         } else {
             menu.push({
-                label: 'Open',
+                label: '打开',
                 click: () => this.onFileClick(item, false),
             })
             menu.push({
-                label: 'Open in New Tab',
+                label: '在新标签页打开',
                 click: () => this.onFileClick(item, true),
             })
             menu.push({
-                label: 'Reload from Remote',
+                label: '从远端重新加载',
                 click: () => this.reloadFile(item),
                 enabled: item.fullPath === this.path,
             })
@@ -1553,16 +1553,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         menu.push({
-            label: 'Copy Path',
+            label: '复制路径',
             click: () => this.copyItemPath(item),
         })
         menu.push({ type: 'separator' })
         menu.push({
-            label: 'Rename',
+            label: '重命名',
             click: () => this.startRename(item),
         })
         menu.push({
-            label: 'Delete',
+            label: '删除',
             click: () => this.deleteItem(item),
         })
 
@@ -1576,11 +1576,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.platform.popupContextMenu([
             {
-                label: 'New File',
+                label: '新建文件',
                 click: () => this.startCreateInCurrentDir('file'),
             },
             {
-                label: 'New Folder',
+                label: '新建文件夹',
                 click: () => this.startCreateInCurrentDir('folder'),
             },
         ], event)
@@ -1632,7 +1632,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
             if (name.includes('/') || name.includes('\\')) {
-                this.notifications.error('Invalid file name')
+                this.notifications.error('文件名无效')
                 return
             }
 
@@ -1664,7 +1664,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
                 this.safeDetectChanges()
             } catch (e: any) {
-                this.notifications.error(e?.message ?? 'Rename failed')
+                this.notifications.error(e?.message ?? '重命名失败')
             }
         } else if (this.editingParentDir) {
             const parentDir = this.editingParentDir
@@ -1676,7 +1676,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
             if (name.includes('/') || name.includes('\\')) {
-                this.notifications.error('Invalid file name')
+                this.notifications.error('文件名无效')
                 return
             }
 
@@ -1704,7 +1704,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
                 this.safeDetectChanges()
             } catch (e: any) {
-                this.notifications.error(e?.message ?? `Failed to create ${type}`)
+                const typeLabel = type === 'folder' ? '文件夹' : '文件'
+                this.notifications.error(e?.message ?? `创建${typeLabel}失败`)
             }
         }
     }
@@ -1720,13 +1721,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     async deleteItem (item: SFTPFileItem): Promise<void> {
         const msg = item.isDirectory
-            ? `Delete folder "${item.name}" and all its contents?`
-            : `Delete "${item.name}"?`
+            ? `确定删除文件夹 "${item.name}" 及其全部内容吗？`
+            : `确定删除 "${item.name}" 吗？`
 
         const result = await this.platform.showMessageBox({
             type: 'warning',
             message: msg,
-            buttons: ['Delete', 'Cancel'],
+            buttons: ['删除', '取消'],
             defaultId: 1,
             cancelId: 1,
         })
@@ -1750,8 +1751,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             if (item.fullPath === this.path) {
                 this.closeTranslationPopover()
-                this.openError = 'File has been deleted'
-                this.status = 'Deleted'
+                this.openError = '文件已删除'
+                this.status = '已删除'
                 this.dirty = false
                 this.diffMode = false
                 this.disposeDiffEditor()
@@ -1763,7 +1764,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             this.safeDetectChanges()
         } catch (e: any) {
-            this.notifications.error(e?.message ?? 'Delete failed')
+            this.notifications.error(e?.message ?? '删除失败')
         }
     }
 
@@ -1772,7 +1773,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
         if (this.diffMode) {
-            this.notifications.notice('Resolve the conflict first')
+            this.notifications.notice('请先解决冲突')
             return
         }
         if (this.loading || this.saving) {
@@ -1782,8 +1783,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         if (this.dirty) {
             const result = await this.platform.showMessageBox({
                 type: 'warning',
-                message: 'Discard local changes and reload from remote?',
-                buttons: ['Reload', 'Cancel'],
+                message: '要放弃本地修改并从远端重新加载吗？',
+                buttons: ['重新加载', '取消'],
                 defaultId: 0,
                 cancelId: 1,
             })
@@ -1794,7 +1795,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.closeTranslationPopover()
         this.loading = true
-        this.status = 'Reloading...'
+        this.status = '重新加载中...'
         this.safeDetectChanges()
         try {
             const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
@@ -1807,8 +1808,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             await this.applyLoadedBuffer(buffer)
             this.dirty = false
         } catch (e: any) {
-            this.status = 'Reload failed'
-            this.notifications.error(e?.message ?? 'Failed to reload file')
+            this.status = '重新加载失败'
+            this.notifications.error(e?.message ?? '重新加载文件失败')
         } finally {
             this.loading = false
             this.safeDetectChanges()
@@ -1821,11 +1822,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const { clipboard } = require('electron')
             clipboard.writeText(text)
-            this.notifications.notice('Path copied')
+            this.notifications.notice('路径已复制')
         } catch {
             navigator.clipboard?.writeText(text)?.then(
-                () => this.notifications.notice('Path copied'),
-                () => this.notifications.error('Failed to copy path'),
+                () => this.notifications.notice('路径已复制'),
+                () => this.notifications.error('复制路径失败'),
             )
         }
     }
@@ -1833,28 +1834,37 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     getStatusBadgeClass (): string {
         const s = (this.status ?? '').toLowerCase()
 
-        if (s.includes('conflict')) {
+        if (s.includes('conflict') || s.includes('冲突')) {
             return 'bg-warning text-dark'
         }
-        if (s.includes('binary')) {
+        if (s.includes('binary') || s.includes('二进制')) {
             return 'bg-warning text-dark'
         }
-        if (s.includes('read-only') || s.includes('readonly')) {
+        if (s.includes('read-only') || s.includes('readonly') || s.includes('只读')) {
             return 'bg-warning text-dark'
         }
-        if (s.includes('modified')) {
+        if (s.includes('modified') || s.includes('已修改')) {
             return 'bg-warning text-dark'
         }
-        if (s.includes('too large')) {
+        if (s.includes('too large') || s.includes('文件过大')) {
             return 'bg-danger'
         }
-        if (s.includes('failed') || s.includes('error')) {
+        if (s.includes('failed') || s.includes('error') || s.includes('失败') || s.includes('错误')) {
             return 'bg-danger'
         }
-        if (s.includes('saved') || s === 'ready') {
+        if (s.includes('saved') || s === 'ready' || s.includes('已保存') || s === '就绪') {
             return 'bg-success'
         }
-        if (s.includes('saving') || s.includes('checking') || s.includes('loading') || s.includes('reloading')) {
+        if (
+            s.includes('saving') ||
+            s.includes('checking') ||
+            s.includes('loading') ||
+            s.includes('reloading') ||
+            s.includes('保存中') ||
+            s.includes('检查中') ||
+            s.includes('加载中') ||
+            s.includes('重新加载中')
+        ) {
             return 'bg-info text-dark'
         }
         return 'bg-secondary'
@@ -1892,23 +1902,23 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         if (!normalized.apiBaseUrl) {
-            this.translationConfigError = 'API Base URL is required'
+            this.translationConfigError = 'API 基础地址不能为空'
             return
         }
         if (!normalized.model) {
-            this.translationConfigError = 'Translation model is required'
+            this.translationConfigError = '翻译模型不能为空'
             return
         }
         if (!normalized.askModel) {
-            this.translationConfigError = '提问模型必填'
+            this.translationConfigError = '提问模型不能为空'
             return
         }
         if (!normalized.targetLanguage) {
-            this.translationConfigError = 'Target language is required'
+            this.translationConfigError = '目标语言不能为空'
             return
         }
         if (!normalized.apiKey) {
-            this.translationConfigError = 'API key is required'
+            this.translationConfigError = 'API 密钥不能为空'
             return
         }
 
@@ -1917,7 +1927,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.storeTranslationSettings(normalized)
         this.translationConfigError = ''
         this.translationSettingsVisible = false
-        this.notifications.notice('AI settings saved')
+        this.notifications.notice('助手设置已保存')
         this.safeDetectChanges()
     }
 
@@ -1960,9 +1970,20 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     getActivePopoverEndpointUsed (): string {
-        return this.translationActiveTab === 'translate'
+        const endpoint = this.translationActiveTab === 'translate'
             ? this.translationEndpointUsed
             : this.askAiEndpointUsed
+
+        switch (endpoint) {
+            case 'cache':
+                return '缓存'
+            case 'responses':
+                return 'Responses 接口'
+            case 'chat_completions':
+                return '对话补全接口'
+            default:
+                return endpoint
+        }
     }
 
     copyActivePopoverResult (): void {
@@ -1974,7 +1995,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         this.writeClipboardText(text)
-        this.notifications.notice(this.translationActiveTab === 'translate' ? 'Translation copied' : '回答已复制')
+        this.notifications.notice(this.translationActiveTab === 'translate' ? '翻译结果已复制' : '回答已复制')
     }
 
     startTranslationFromSelection (): void {
@@ -2151,7 +2172,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
 
-        this.notifications.notice('Relative Markdown links are not supported yet')
+        this.notifications.notice('暂不支持相对 Markdown 链接')
     }
 
     onMarkdownPreviewMouseUp (): void {
@@ -2261,8 +2282,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             const label = this.encodings.find(x => x.id === encoding)?.label ?? encoding
             const result = await this.platform.showMessageBox({
                 type: 'warning',
-                message: `Discard local changes and reload using ${label}?`,
-                buttons: ['Reload', 'Cancel'],
+                message: `要放弃本地修改并使用 ${label} 重新加载吗？`,
+                buttons: ['重新加载', '取消'],
                 defaultId: 0,
                 cancelId: 1,
             })
@@ -2279,13 +2300,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 this.loadedBuffer = await this.readRemoteFileBuffer()
                 this.detectAndApplyEncoding(this.loadedBuffer)
             } catch (e: any) {
-                this.notifications.error(e?.message ?? 'Failed to reload file for encoding change')
+                this.notifications.error(e?.message ?? '按所选编码重新加载文件失败')
                 return
             }
         }
 
         if (this.isBinary && !this.forceOpenBinary) {
-            this.status = 'Binary file'
+            this.status = '二进制文件'
             return
         }
 
@@ -2294,9 +2315,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.initEditorIfNeeded()
             this.setEditorValue(text)
             this.dirty = false
-            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+            this.status = this.readOnlyLargeFile ? '只读：大文件' : '就绪'
         } catch (e: any) {
-            this.notifications.error(e?.message ?? 'Failed to decode using selected encoding')
+            this.notifications.error(e?.message ?? '使用所选编码解码失败')
         }
     }
 
@@ -2339,7 +2360,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.initEditorIfNeeded()
         this.setEditorValue(text)
         this.dirty = false
-        this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+        this.status = this.readOnlyLargeFile ? '只读：大文件' : '就绪'
     }
 
     private clampSidebarWidth (width: number): number {
@@ -2491,7 +2512,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } catch (e: any) {
             this.dirContents = []
             this.expandedDirs.clear()
-            this.dirLoadError = e?.message ?? 'Failed to load directory'
+            this.dirLoadError = e?.message ?? '加载目录失败'
             this.notifications.error(this.dirLoadError)
             this.safeDetectChanges()
         } finally {
@@ -2508,7 +2529,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             const newChildren = await this.loadDirectory(this.currentDir)
             this.dirContents = this.mergeChildren(this.dirContents, newChildren)
         } catch (e: any) {
-            this.dirLoadError = e?.message ?? 'Failed to refresh'
+            this.dirLoadError = e?.message ?? '刷新失败'
             this.notifications.error(this.dirLoadError!)
         } finally {
             this.loadingDir = false
@@ -2677,7 +2698,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } catch (e: any) {
             item.loaded = false
             item.children = []
-            item.loadError = e?.message ?? 'Failed to load directory'
+            item.loadError = e?.message ?? '加载目录失败'
             this.notifications.error(item.loadError)
             this.safeDetectChanges()
         }
@@ -2707,7 +2728,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         if (newTab) {
             const sshSession: any = this.sshSession
             if (!sshSession) {
-                this.notifications.error('No SSH session available')
+                this.notifications.error('SSH 会话不可用')
                 return
             }
 
@@ -2725,7 +2746,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 })
             } catch (e: any) {
                 sshSession.unref?.()
-                this.notifications.error(e?.message ?? 'Failed to open editor tab')
+                this.notifications.error(e?.message ?? '打开编辑器标签失败')
             }
             return
         }
@@ -2735,15 +2756,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         if (this.diffMode) {
-            this.notifications.notice('Resolve the conflict first')
+            this.notifications.notice('请先解决冲突')
             return
         }
 
         if (this.dirty) {
             const result = await this.platform.showMessageBox({
                 type: 'warning',
-                message: 'Save changes before switching?',
-                buttons: ['Save', 'Discard', 'Cancel'],
+                message: '切换前要先保存更改吗？',
+                buttons: ['保存', '放弃', '取消'],
                 defaultId: 0,
                 cancelId: 2,
             })
@@ -2822,7 +2843,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private async loadDirectory (dirPath: string): Promise<SFTPFileItem[]> {
         const sftp: any = await this.getSftp()
         if (!sftp?.readdir) {
-            throw new Error('SFTP directory listing is not available')
+            throw new Error('当前 SFTP 会话不支持目录列表')
         }
 
         const dir = this.normalizeRemotePath(dirPath)
@@ -2874,7 +2895,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.disposePdfPreview()
 
         if (this.isBinary && !this.forceOpenBinary) {
-            this.status = 'Binary file'
+            this.status = '二进制文件'
             return
         }
 
@@ -2883,7 +2904,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.initEditorIfNeeded()
         this.applyLanguageToEditor()
         this.setEditorValue(text)
-        this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+        this.status = this.readOnlyLargeFile ? '只读：大文件' : '就绪'
     }
 
     private async loadPdfPreview (buffer: Buffer): Promise<void> {
@@ -2895,7 +2916,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.pdfPageCount = 0
         this.pdfCurrentPage = 1
         this.pdfZoom = 1
-        this.status = 'Loading PDF...'
+        this.status = '正在加载 PDF...'
         this.safeDetectChanges()
 
         let loadingTask: any = null
@@ -2915,8 +2936,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.pdfDocument = documentProxy
             this.pdfPageCount = documentProxy?.numPages ?? 0
             if (!this.pdfPageCount) {
-                this.pdfError = 'PDF has no pages to preview'
-                this.status = 'PDF preview failed'
+                this.pdfError = 'PDF 没有可预览的页面'
+                this.status = 'PDF 预览失败'
                 return
             }
 
@@ -2927,8 +2948,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             if (!this.isPdf || this.pdfLoadingTask !== loadingTask) {
                 return
             }
-            this.pdfError = error?.message ?? 'Failed to load PDF preview'
-            this.status = 'PDF preview failed'
+            this.pdfError = error?.message ?? '加载 PDF 预览失败'
+            this.status = 'PDF 预览失败'
         } finally {
             if (this.isPdf && this.pdfLoadingTask === loadingTask) {
                 this.pdfLoading = false
@@ -2980,7 +3001,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             const outputScale = window.devicePixelRatio || 1
             const context = canvas.getContext('2d', { alpha: false })
             if (!context) {
-                throw new Error('Canvas context is not available for PDF preview')
+                throw new Error('PDF 预览所需的画布上下文不可用')
             }
 
             canvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
@@ -3032,8 +3053,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             const message = `${error?.message ?? ''}`.toLowerCase()
             const cancelled = renderToken !== this.pdfRenderToken || message.includes('cancel')
             if (!cancelled) {
-                this.pdfError = error?.message ?? 'Failed to render PDF page'
-                this.status = 'PDF preview failed'
+                this.pdfError = error?.message ?? '渲染 PDF 页面失败'
+                this.status = 'PDF 预览失败'
             }
         } finally {
             if (renderToken === this.pdfRenderToken) {
@@ -3186,20 +3207,20 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         if (this.pdfError) {
-            this.status = 'PDF preview failed'
+            this.status = 'PDF 预览失败'
             return
         }
 
         if (!this.pdfPageCount) {
-            this.status = 'Loading PDF...'
+            this.status = '正在加载 PDF...'
             return
         }
 
-        this.status = `PDF ${this.pdfCurrentPage}/${this.pdfPageCount}`
+        this.status = `PDF 第 ${this.pdfCurrentPage}/${this.pdfPageCount} 页`
     }
 
     private async loadCurrentFile (opts: { onCancel: 'close'|'keep' }): Promise<boolean> {
-        this.status = 'Loading...'
+        this.status = '加载中...'
         try {
             this.loading = true
             this.closeTranslationPopover()
@@ -3219,17 +3240,17 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             if (fileSize !== null) {
                 if (fileSize > LARGE_FILE_REJECT_SIZE) {
-                    this.openError = `This file is too large to open (${formatBytes(fileSize)})`
-                    this.status = 'Too large'
+                    this.openError = `文件过大，无法打开（${formatBytes(fileSize)}）`
+                    this.status = '文件过大'
                     return true
                 }
 
                 if (fileSize > LARGE_FILE_WARNING_SIZE) {
                     const result = await this.platform.showMessageBox({
                         type: 'warning',
-                        message: `This file is ${formatBytes(fileSize)}. Opening it may be slow.`,
-                        detail: 'Do you want to continue?',
-                        buttons: ['Open', 'Cancel'],
+                        message: `该文件大小为 ${formatBytes(fileSize)}，打开可能较慢。`,
+                        detail: '是否继续？',
+                        buttons: ['打开', '取消'],
                         defaultId: 0,
                         cancelId: 1,
                     })
@@ -3262,11 +3283,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 this.applyLanguageToEditor()
                 this.setEditorValue('')
                 this.dirty = false
-                this.status = 'New file'
+                this.status = '新文件'
                 return true
             }
-            this.status = 'Failed to load'
-            this.openError = e?.message ?? 'Failed to load file'
+            this.status = '加载失败'
+            this.openError = e?.message ?? '加载文件失败'
             this.notifications.error(this.openError)
             return true
         } finally {
@@ -3293,8 +3314,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const result = await this.platform.showMessageBox({
             type: 'warning',
-            message: `Save changes to ${this.name ?? this.path}?`,
-            buttons: ['Save', 'Discard', 'Cancel'],
+            message: `要保存对 ${this.name ?? this.path} 的更改吗？`,
+            buttons: ['保存', '不保存', '取消'],
             defaultId: 0,
             cancelId: 2,
         })
@@ -3310,32 +3331,32 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     async save (): Promise<boolean> {
         if (this.diffMode) {
-            this.notifications.notice('Resolve the conflict first')
+            this.notifications.notice('请先解决冲突')
             return false
         }
         if (this.saving || this.loading) {
             return false
         }
         if (this.showPdfPreview()) {
-            this.notifications.notice('PDF preview is read-only')
+            this.notifications.notice('PDF 预览为只读')
             return false
         }
         if (!this.editor) {
             return false
         }
         if (this.readOnlyLargeFile) {
-            this.notifications.notice('This file is read-only due to its size')
+            this.notifications.notice('该文件因体积过大而为只读')
             return false
         }
         if (this.isBinary && !this.forceOpenBinary) {
-            this.notifications.notice('This file appears to be binary')
+            this.notifications.notice('该文件似乎是二进制文件')
             return false
         }
 
         const localText = this.editor.getValue()
 
         this.saving = true
-        this.status = 'Checking...'
+        this.status = '检查中...'
         try {
             const currentRemoteMtime = await this.getRemoteMtime().catch(() => null)
             if (
@@ -3343,14 +3364,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 currentRemoteMtime !== null &&
                 currentRemoteMtime !== this.remoteMtime
             ) {
-                this.status = 'Conflict detected'
+                this.status = '检测到冲突'
                 const remoteBuffer = await this.readRemoteFileBuffer()
                 const remoteText = this.decodeBufferForDisplay(remoteBuffer)
                 this.showConflictDiff(remoteText, localText)
                 return false
             }
 
-            this.status = 'Saving...'
+            this.status = '保存中...'
             const payload = this.buildWriteBuffer(localText)
             await this.writeRemoteFileBuffer(payload)
             this.remoteMtime = await this.getRemoteMtime().catch(() => null)
@@ -3358,11 +3379,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.isBinary = isBinaryContent(payload)
             this.detectAndApplyEncoding(payload)
             this.dirty = false
-            this.status = 'Saved'
+            this.status = '已保存'
             return true
         } catch (e: any) {
-            this.status = 'Save failed'
-            this.notifications.error(e?.message ?? 'Failed to save file')
+            this.status = '保存失败'
+            this.notifications.error(e?.message ?? '保存文件失败')
             return false
         } finally {
             this.saving = false
@@ -3376,7 +3397,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const text = this.getDiffModifiedText()
         this.saving = true
-        this.status = 'Saving (force)...'
+        this.status = '强制保存中...'
         try {
             const payload = this.buildWriteBuffer(text)
             await this.writeRemoteFileBuffer(payload)
@@ -3386,10 +3407,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.detectAndApplyEncoding(payload)
             this.exitDiffToEditor(text)
             this.dirty = false
-            this.status = 'Saved'
+            this.status = '已保存'
         } catch (e: any) {
-            this.status = 'Save failed'
-            this.notifications.error(e?.message ?? 'Failed to save file')
+            this.status = '保存失败'
+            this.notifications.error(e?.message ?? '保存文件失败')
         } finally {
             this.saving = false
         }
@@ -3401,7 +3422,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         this.saving = true
-        this.status = 'Reloading...'
+        this.status = '重新加载中...'
         try {
             const st = await this.getRemoteStat().catch(() => ({ mtime: null, size: null }))
             this.remoteMtime = st.mtime
@@ -3409,8 +3430,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             if (st.size !== null) {
                 this.size = st.size
                 if (st.size > LARGE_FILE_REJECT_SIZE) {
-                    this.openError = `This file is too large to open (${formatBytes(st.size)})`
-                    this.status = 'Too large'
+                    this.openError = `文件过大，无法打开（${formatBytes(st.size)}）`
+                    this.status = '文件过大'
                     this.disposeDiffEditor()
                     this.editorHost?.nativeElement && (this.editorHost.nativeElement.innerHTML = '')
                     this.diffMode = false
@@ -3428,8 +3449,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             await this.applyLoadedBuffer(buffer)
             this.dirty = false
         } catch (e: any) {
-            this.status = 'Reload failed'
-            this.notifications.error(e?.message ?? 'Failed to reload remote file')
+            this.status = '重新加载失败'
+            this.notifications.error(e?.message ?? '重新加载远端文件失败')
         } finally {
             this.saving = false
         }
@@ -3443,7 +3464,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         const text = this.getDiffModifiedText()
         this.exitDiffToEditor(text)
         this.dirty = true
-        this.status = 'Modified'
+        this.status = '已修改'
     }
 
     private startFollowingTheme (): void {
@@ -3475,7 +3496,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
         if (!this.editorHost?.nativeElement) {
-            throw new Error('Editor host element not ready')
+            throw new Error('编辑器容器尚未就绪')
         }
 
         const monaco = getMonaco()
@@ -3501,7 +3522,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
             this.refreshMarkdownPreview()
             this.dirty = true
-            this.status = 'Modified'
+            this.status = '已修改'
         })
 
         this.editor.onDidChangeCursorSelection(() => {
@@ -3549,7 +3570,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     private showConflictDiff (remoteText: string, localText: string): void {
         if (!this.editorHost?.nativeElement) {
-            throw new Error('Editor host element not ready')
+            throw new Error('编辑器容器尚未就绪')
         }
 
         this.closeTranslationPopover()
@@ -3560,7 +3581,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.diffMode = true
         this.markdownPreview = false
-        this.status = 'Conflict detected'
+        this.status = '检测到冲突'
 
         this.disposeEditor()
         this.disposeDiffEditor()
@@ -3599,11 +3620,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         modifiedEditor.onDidChangeModelContent(() => {
             // Keep dirty state; conflict is still unresolved.
             this.dirty = true
-            this.status = 'Conflict detected'
+            this.status = '检测到冲突'
         })
 
         modifiedEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-            this.notifications.notice('Resolve the conflict first')
+            this.notifications.notice('请先解决冲突')
         })
 
         this.ensureCodeEditorFocus(modifiedEditor)
@@ -3976,7 +3997,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.translationSelectionState = state
         this.translationSelectedText = state.text
-        this.translationButtonLabel = 'AI'
+        this.translationButtonLabel = '助手'
         this.translationButtonTop = state.anchor.top
         this.translationButtonLeft = state.anchor.left
 
@@ -4195,7 +4216,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         if (state.text.length > TRANSLATION_MAX_SELECTION_LENGTH) {
             this.translationLoading = false
-            this.translationError = `Selection is too long to translate (${state.text.length} characters, max ${TRANSLATION_MAX_SELECTION_LENGTH})`
+            this.translationError = `选中文本过长，无法翻译（${state.text.length} 个字符，最多 ${TRANSLATION_MAX_SELECTION_LENGTH} 个）`
             this.safeDetectChanges()
             return
         }
@@ -4238,7 +4259,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             const err = e instanceof TranslationError
                 ? e
-                : new TranslationError(e?.message ?? 'Translation request failed')
+                : new TranslationError(e?.message ?? '翻译请求失败')
             this.translationResult = ''
             this.translationEndpointUsed = ''
             this.translationError = err.message
@@ -4269,7 +4290,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         if (state.text.length > TRANSLATION_MAX_SELECTION_LENGTH) {
             this.askAiLoading = false
-            this.askAiError = `选中文本过长，无法提问（${state.text.length} 字符，最大 ${TRANSLATION_MAX_SELECTION_LENGTH}）`
+            this.askAiError = `选中文本过长，无法提问（${state.text.length} 个字符，最多 ${TRANSLATION_MAX_SELECTION_LENGTH} 个）`
             this.safeDetectChanges()
             return
         }
@@ -4396,7 +4417,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             const { shell } = require('electron')
             Promise.resolve(shell?.openExternal?.(url)).catch(() => {
-                this.notifications.error('Failed to open link')
+                this.notifications.error('打开链接失败')
             })
             return
         } catch {
@@ -4406,7 +4427,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             window.open(url, '_blank', 'noopener')
         } catch {
-            this.notifications.error('Failed to open link')
+            this.notifications.error('打开链接失败')
         }
     }
 
@@ -4631,32 +4652,32 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const menu: any[] = [
             {
-                label: 'Save',
+                label: '保存',
                 enabled: canSave,
                 click: () => this.save(),
             },
             {
-                label: 'Reload from Remote',
+                label: '从远端重新加载',
                 enabled: canReload,
                 click: () => this.reloadCurrentFileFromContextMenu(),
             },
             { type: 'separator' },
             {
-                label: 'Format Document',
+                label: '格式化文档',
                 enabled: canFormat,
                 click: () => this.runEditorAction(editor, 'editor.action.formatDocument'),
             },
             {
-                label: 'Find / Replace',
+                label: '查找 / 替换',
                 enabled: canFind,
                 submenu: [
                     {
-                        label: 'Find',
+                        label: '查找',
                         enabled: canFind,
                         click: () => this.runEditorAction(editor, 'actions.find'),
                     },
                     {
-                        label: 'Replace',
+                        label: '替换',
                         enabled: canReplace,
                         click: () => this.runEditorAction(editor, 'editor.action.startFindReplaceAction'),
                     },
@@ -4664,7 +4685,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             },
             { type: 'separator' },
             {
-                label: 'Translate Selection',
+                label: '翻译选中内容',
                 enabled: canTranslate,
                 click: () => {
                     const state = this.getMonacoSelectionState(editor)
@@ -4688,44 +4709,44 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 },
             },
             {
-                label: 'AI Settings',
+                label: '助手设置',
                 click: () => this.openTranslationSettings(),
             },
             { type: 'separator' },
             {
-                label: 'Reopen with Encoding',
+                label: '按编码重新打开',
                 enabled: canReopenWithEncoding,
                 submenu: this.buildReopenEncodingMenuItems(),
             },
             {
-                label: 'Save with Encoding',
+                label: '按编码保存',
                 enabled: canSaveWithEncoding,
                 submenu: this.buildSaveWithEncodingMenuItems(),
             },
             { type: 'separator' },
             {
-                label: 'Undo',
+                label: '撤销',
                 enabled: !readOnly,
                 click: () => editor.trigger('keyboard', 'undo', null),
             },
             {
-                label: 'Redo',
+                label: '重做',
                 enabled: !readOnly,
                 click: () => editor.trigger('keyboard', 'redo', null),
             },
             { type: 'separator' },
             {
-                label: 'Cut',
+                label: '剪切',
                 enabled: !readOnly && hasSelection,
                 click: () => this.cutSelectionToClipboard(editor),
             },
             {
-                label: 'Copy',
+                label: '复制',
                 enabled: hasSelection,
                 click: () => this.copySelectionToClipboard(editor),
             },
             {
-                label: 'Paste',
+                label: '粘贴',
                 enabled: !readOnly,
                 click: () => {
                     const text = this.readClipboardText()
@@ -4734,7 +4755,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             },
             { type: 'separator' },
             {
-                label: 'Select All',
+                label: '全选',
                 click: () => this.selectAllInEditor(editor),
             },
         ]
@@ -4988,7 +5009,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return this.sftp
         }
         if (!this.sshSession?.openSFTP) {
-            throw new Error('SSH session is not available')
+            throw new Error('SSH 会话不可用')
         }
         this.sftp = await this.sshSession.openSFTP()
         return this.sftp
@@ -5041,7 +5062,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             return new TextDecoder(encoding).decode(buffer.slice(this.bomOffset))
         } catch {
-            throw new Error(`Unsupported encoding: ${encoding}`)
+            throw new Error(`不支持的编码：${encoding}`)
         }
     }
 
@@ -5090,7 +5111,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const iconv = getIconvLite()
         if (!iconv) {
-            throw new Error(`Saving in ${encoding} is not supported (iconv-lite not found)`)
+            throw new Error(`当前环境不支持以 ${encoding} 保存（缺少 iconv-lite）`)
         }
 
         for (const candidate of this.getIconvCandidates(enc)) {
@@ -5101,7 +5122,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
-        throw new Error(`Unsupported encoding for save: ${encoding}`)
+        throw new Error(`保存时不支持编码：${encoding}`)
     }
 
     private getIconvCandidates (encoding: string): string[] {
@@ -5161,7 +5182,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 chunks.push(buf)
                 total += buf.length
                 if (total > LARGE_FILE_REJECT_SIZE) {
-                    throw new Error('File is too large to open')
+                    throw new Error('文件过大，无法打开')
                 }
             }
             return Buffer.concat(chunks)
