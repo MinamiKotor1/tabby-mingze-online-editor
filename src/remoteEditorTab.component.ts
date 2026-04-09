@@ -1129,6 +1129,11 @@ function luminance (rgb: RGB): number {
             color: var(--bs-secondary-color, rgba(0, 0, 0, 0.6));
         }
 
+        .pdf-page-input {
+            width: 4.75rem;
+            text-align: center;
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -1198,6 +1203,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     pdfError = ''
     pdfPageCount = 0
     pdfCurrentPage = 1
+    pdfPageInput = '1'
     pdfZoom = 1
 
     // Sidebar file tree
@@ -2201,25 +2207,46 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     goToPreviousPdfPage (): void {
-        if (this.pdfCurrentPage <= 1 || this.isPdfBusy()) {
-            return
-        }
-        this.clearTranslationSelection('pdf')
-        this.pdfCurrentPage--
-        this.updatePdfStatus()
-        this.safeDetectChanges()
-        this.schedulePdfRender()
+        this.goToPdfPage(this.pdfCurrentPage - 1)
     }
 
     goToNextPdfPage (): void {
-        if (this.pdfCurrentPage >= this.pdfPageCount || this.isPdfBusy()) {
+        this.goToPdfPage(this.pdfCurrentPage + 1)
+    }
+
+    onPdfPageInputChange (value: string): void {
+        this.pdfPageInput = (value ?? '').replace(/[^\d]/g, '')
+    }
+
+    onPdfPageInputKeyDown (event: KeyboardEvent): void {
+        if (event.key !== 'Enter') {
             return
         }
-        this.clearTranslationSelection('pdf')
-        this.pdfCurrentPage++
-        this.updatePdfStatus()
-        this.safeDetectChanges()
-        this.schedulePdfRender()
+
+        event.preventDefault()
+        this.goToPdfPageInput()
+    }
+
+    onPdfPageInputBlur (): void {
+        if (!this.pdfPageInput.trim()) {
+            this.pdfPageInput = `${this.pdfCurrentPage}`
+            this.safeDetectChanges()
+        }
+    }
+
+    goToPdfPageInput (): void {
+        if (!this.pdfPageCount || this.isPdfBusy()) {
+            return
+        }
+
+        const nextPage = Number.parseInt(this.pdfPageInput.trim(), 10)
+        if (!Number.isFinite(nextPage)) {
+            this.pdfPageInput = `${this.pdfCurrentPage}`
+            this.safeDetectChanges()
+            return
+        }
+
+        this.goToPdfPage(nextPage)
     }
 
     zoomOutPdf (): void {
@@ -2905,6 +2932,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.pdfError = ''
         this.pdfPageCount = 0
         this.pdfCurrentPage = 1
+        this.pdfPageInput = '1'
         this.pdfZoom = 1
         this.status = 'Loading PDF...'
         this.safeDetectChanges()
@@ -3175,6 +3203,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.pdfError = ''
         this.pdfPageCount = 0
         this.pdfCurrentPage = 1
+        this.pdfPageInput = '1'
         this.pdfZoom = 1
         this.isPdf = false
     }
@@ -3203,10 +3232,31 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         if (!this.pdfPageCount) {
             this.status = 'Loading PDF...'
+            this.pdfPageInput = '1'
             return
         }
 
+        this.pdfPageInput = `${this.pdfCurrentPage}`
         this.status = `PDF ${this.pdfCurrentPage}/${this.pdfPageCount}`
+    }
+
+    private goToPdfPage (page: number): void {
+        if (!this.pdfPageCount || this.isPdfBusy() || !Number.isFinite(page)) {
+            return
+        }
+
+        const nextPage = Math.round(clampNumber(page, 1, this.pdfPageCount))
+        this.pdfPageInput = `${nextPage}`
+        if (nextPage === this.pdfCurrentPage) {
+            this.safeDetectChanges()
+            return
+        }
+
+        this.clearTranslationSelection('pdf')
+        this.pdfCurrentPage = nextPage
+        this.updatePdfStatus()
+        this.safeDetectChanges()
+        this.schedulePdfRender()
     }
 
     private async loadCurrentFile (opts: { onCancel: 'close'|'keep' }): Promise<boolean> {

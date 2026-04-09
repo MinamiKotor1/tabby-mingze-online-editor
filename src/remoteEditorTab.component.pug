@@ -64,8 +64,25 @@
                 )
                     i.fas.fa-chevron-left.me-1
                     span Prev
-                button.btn.btn-outline-secondary.text-nowrap(type='button', disabled)
-                    span {{pdfCurrentPage}} / {{pdfPageCount || 0}}
+                .d-flex.align-items-center.gap-1.px-1
+                    input.form-control.form-control-sm.pdf-page-input(
+                        type='number',
+                        min='1',
+                        [max]='pdfPageCount || 1',
+                        [value]='pdfPageInput',
+                        [disabled]='!pdfPageCount || isPdfBusy()',
+                        placeholder='Page',
+                        title='Go to page',
+                        (input)='onPdfPageInputChange($event.target.value)',
+                        (keydown)='onPdfPageInputKeyDown($event)',
+                        (blur)='onPdfPageInputBlur()'
+                    )
+                    span.small.text-nowrap / {{pdfPageCount || 0}}
+                    button.btn.btn-outline-secondary.text-nowrap(
+                        type='button',
+                        (click)='goToPdfPageInput()',
+                        [disabled]='!pdfPageCount || isPdfBusy()'
+                    ) Go
                 button.btn.btn-outline-secondary.text-nowrap(
                     type='button',
                     (click)='goToNextPdfPage()',
