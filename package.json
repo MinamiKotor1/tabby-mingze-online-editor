@@ -19,7 +19,8 @@
   "author": "Mingze",
   "license": "MIT",
   "dependencies": {
-    "monaco-editor": "^0.47.0"
+    "monaco-editor": "^0.47.0",
+    "pdfjs-dist": "3.11.174"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",

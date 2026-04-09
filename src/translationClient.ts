@@ -1,10 +1,12 @@
 export type TranslationEndpointMode = 'auto' | 'responses' | 'chat_completions'
+export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
 export interface TranslationConfig {
     apiBaseUrl: string
     apiKey: string
     model: string
     askModel: string
+    askReasoningEffort: ReasoningEffort
     targetLanguage: string
     endpointMode: TranslationEndpointMode
     timeoutMs: number
@@ -214,6 +216,7 @@ type TextGenerationRequest = {
     model: string
     systemPrompt: string
     userText: string
+    reasoningEffort?: ReasoningEffort
 }
 
 async function requestTextViaResponses (
@@ -221,30 +224,38 @@ async function requestTextViaResponses (
     req: TextGenerationRequest,
     signal?: AbortSignal,
 ): Promise<TranslationResult> {
-    const data = await requestJson(
-        buildEndpointUrl(config.apiBaseUrl, '/responses'),
-        {
-            model: req.model,
-            input: [
-                {
-                    role: 'system',
-                    content: [
-                        { type: 'input_text', text: req.systemPrompt },
-                    ],
-                },
-                {
-                    role: 'user',
-                    content: [
-                        { type: 'input_text', text: req.userText },
-                    ],
-                },
-            ],
-            text: {
-                format: {
-                    type: 'text',
-                },
+    const body: any = {
+        model: req.model,
+        input: [
+            {
+                role: 'system',
+                content: [
+                    { type: 'input_text', text: req.systemPrompt },
+                ],
+            },
+            {
+                role: 'user',
+                content: [
+                    { type: 'input_text', text: req.userText },
+                ],
+            },
+        ],
+        text: {
+            format: {
+                type: 'text',
             },
         },
+    }
+
+    if (req.reasoningEffort) {
+        body.reasoning = {
+            effort: req.reasoningEffort,
+        }
+    }
+
+    const data = await requestJson(
+        buildEndpointUrl(config.apiBaseUrl, '/responses'),
+        body,
         config.apiKey,
         signal,
     )
@@ -265,21 +276,27 @@ async function requestTextViaChatCompletions (
     req: TextGenerationRequest,
     signal?: AbortSignal,
 ): Promise<TranslationResult> {
+    const body: any = {
+        model: req.model,
+        messages: [
+            {
+                role: 'developer',
+                content: req.systemPrompt,
+            },
+            {
+                role: 'user',
+                content: req.userText,
+            },
+        ],
+    }
+
+    if (req.reasoningEffort) {
+        body.reasoning_effort = req.reasoningEffort
+    }
+
     const data = await requestJson(
         buildEndpointUrl(config.apiBaseUrl, '/chat/completions'),
-        {
-            model: req.model,
-            messages: [
-                {
-                    role: 'developer',
-                    content: req.systemPrompt,
-                },
-                {
-                    role: 'user',
-                    content: req.userText,
-                },
-            ],
-        },
+        body,
         config.apiKey,
         signal,
     )
@@ -316,6 +333,7 @@ type RunTextGenerationOptions = {
     model: string
     systemPrompt: string
     userText: string
+    reasoningEffort?: ReasoningEffort
     signal?: AbortSignal
     requestName: string
 }
@@ -385,6 +403,7 @@ export function getDefaultTranslationConfig (): TranslationConfig {
         apiKey: '',
         model: 'gpt-5.4-nano',
         askModel: 'gpt-5.4-nano',
+        askReasoningEffort: 'medium',
         targetLanguage: 'Simplified Chinese',
         endpointMode: 'auto',
         timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -423,6 +442,7 @@ export async function askAiAboutSelection (
         model: config.askModel,
         systemPrompt: buildAskAiSystemPrompt(req.sourceType),
         userText: buildAskAiUserPrompt(req.selection, req.question),
+        reasoningEffort: config.askReasoningEffort,
         signal: req.signal,
         requestName: '提问请求',
     })

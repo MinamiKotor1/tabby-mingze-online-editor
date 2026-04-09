@@ -5,7 +5,7 @@
                 i.fas.me-1([class.fa-chevron-left]='sidebarVisible', [class.fa-chevron-right]='!sidebarVisible')
                 span Explorer
 
-            button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='openError || readOnlyLargeFile || (isBinary && !forceOpenBinary) || !dirty || saving || loading', [class.opacity-75]='saving || loading')
+            button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='openError || readOnlyLargeFile || showPdfPreview() || (isBinary && !forceOpenBinary) || !dirty || saving || loading', [class.opacity-75]='saving || loading')
                 i.fas.fa-spinner.fa-spin.me-1(*ngIf='saving || loading')
                 i.fas.fa-save.fa-floppy-disk.me-1(*ngIf='!saving && !loading')
                 span {{saving ? 'Saving...' : (loading ? 'Loading...' : 'Save')}}
@@ -29,7 +29,7 @@
                     i.fas.fa-moon.me-1(*ngIf='darkMode')
                     i.fas.fa-sun.me-1(*ngIf='!darkMode')
                     span {{darkMode ? 'Dark' : 'Light'}}
-                button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='openEncodingMenu($event)', [disabled]='openError || loading || saving || diffMode || (isBinary && !forceOpenBinary)')
+                button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='openEncodingMenu($event)', [disabled]='openError || loading || saving || diffMode || showPdfPreview() || (isBinary && !forceOpenBinary)')
                     i.fas.fa-language.me-1
                     span {{getEncodingLabel()}}
                 button.btn.btn-outline-secondary.text-nowrap.translation-toolbar-btn(type='button', (click)='openTranslationSettings()')
@@ -55,6 +55,47 @@
                 )
                     i.fas.fa-book-open.me-1
                     span Preview
+
+            .btn-group.btn-group-sm(*ngIf='showPdfToolbar()', role='group')
+                button.btn.btn-outline-secondary.text-nowrap(
+                    type='button',
+                    (click)='goToPreviousPdfPage()',
+                    [disabled]='pdfCurrentPage <= 1 || isPdfBusy()'
+                )
+                    i.fas.fa-chevron-left.me-1
+                    span Prev
+                button.btn.btn-outline-secondary.text-nowrap(type='button', disabled)
+                    span {{pdfCurrentPage}} / {{pdfPageCount || 0}}
+                button.btn.btn-outline-secondary.text-nowrap(
+                    type='button',
+                    (click)='goToNextPdfPage()',
+                    [disabled]='pdfCurrentPage >= pdfPageCount || isPdfBusy()'
+                )
+                    span Next
+                    i.fas.fa-chevron-right.ms-1
+                button.btn.btn-outline-secondary.text-nowrap(
+                    type='button',
+                    (click)='zoomOutPdf()',
+                    [disabled]='isPdfBusy()'
+                )
+                    i.fas.fa-magnifying-glass-minus.me-1
+                    span Zoom Out
+                button.btn.btn-outline-secondary.text-nowrap(type='button', disabled)
+                    span {{getPdfZoomLabel()}}
+                button.btn.btn-outline-secondary.text-nowrap(
+                    type='button',
+                    (click)='zoomInPdf()',
+                    [disabled]='isPdfBusy()'
+                )
+                    i.fas.fa-magnifying-glass-plus.me-1
+                    span Zoom In
+                button.btn.btn-outline-secondary.text-nowrap(
+                    type='button',
+                    (click)='resetPdfZoom()',
+                    [disabled]='isPdfBusy()'
+                )
+                    i.fas.fa-arrows-rotate.me-1
+                    span Reset
 
             span.status-badge.badge.rounded-pill.text-nowrap([ngClass]='getStatusBadgeClass()') {{status}}
 
@@ -99,7 +140,7 @@
                         p.fw-semibold.mb-2 {{openError}}
                         button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
-                .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary')
+                .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary && !showPdfPreview()')
                     .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
                         i.fas.fa-file-zipper.fa-3x.mb-3
                         p.mb-3 This file appears to be binary and cannot be edited.
@@ -121,12 +162,15 @@
                     *ngIf='translationPopoverVisible',
                     [style.top.px]='translationPopoverTop',
                     [style.left.px]='translationPopoverLeft',
-                    [style.max-width.px]='translationPopoverWidth',
+                    [style.width.px]='translationPopoverWidth',
+                    [style.height.px]='translationPopoverHeight',
                     (mousedown)='$event.stopPropagation()',
                     (click)='$event.stopPropagation()'
                 )
                     .translation-popover-header
-                        strong.small AI
+                        .translation-popover-drag-area((mousedown)='startTranslationPopoverDrag($event)')
+                            strong.small AI
+                            span.translation-popover-drag-hint Drag
                         .translation-popover-actions
                             span.badge.bg-secondary.small(*ngIf='getActivePopoverEndpointUsed()') {{getActivePopoverEndpointUsed()}}
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='copyActivePopoverResult()', [disabled]='!(translationActiveTab === "translate" ? translationResult : askAiResult)')
@@ -152,42 +196,57 @@
                             (click)='setTranslationPopoverTab("ask_ai")'
                         ) 提问
 
-                    .translation-popover-source(*ngIf='translationSelectedText') {{translationSelectedText}}
-                    ng-container(*ngIf='isTranslateTabActive()')
-                        .translation-popover-body.text-muted(*ngIf='translationLoading')
-                            i.fas.fa-spinner.fa-spin.me-2
-                            span Translating...
-                        .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
-                            p.mb-2 {{translationError}}
-                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
-                                i.fas.fa-rotate-right.me-1
-                                span Retry
-                        .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
-                        .translation-popover-body.text-muted(*ngIf='!translationLoading && !translationError && !translationResult') Click Translate to load the translation result.
+                    .translation-popover-main
+                        .translation-popover-source(*ngIf='translationSelectedText') {{translationSelectedText}}
+                        ng-container(*ngIf='isTranslateTabActive()')
+                            .translation-popover-body.text-muted(*ngIf='translationLoading')
+                                i.fas.fa-spinner.fa-spin.me-2
+                                span Translating...
+                            .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
+                                p.mb-2 {{translationError}}
+                                button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
+                                    i.fas.fa-rotate-right.me-1
+                                    span Retry
+                            .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
+                            .translation-popover-body.text-muted(*ngIf='!translationLoading && !translationError && !translationResult') Click Translate to load the translation result.
 
-                    ng-container(*ngIf='isAskAiTabActive()')
-                        .translation-ask-form
-                            textarea.translation-ask-input(
-                                [value]='askAiQuestion',
-                                (input)='askAiQuestion = $event.target.value',
-                                (keydown)='onAskAiQuestionKeyDown($event)',
-                                placeholder='围绕选中文本输入你的问题...'
-                            )
-                            .d-flex.align-items-center.justify-content-between.gap-2.flex-wrap
-                                span.translation-ask-footnote Ctrl/Cmd+Enter 发送
-                                button.btn.btn-primary.btn-sm(type='button', (click)='submitAskAiQuestion()', [disabled]='askAiLoading || !askAiQuestion.trim()')
-                                    i.fas.fa-paper-plane.me-1
-                                    span 提问
-                        .translation-popover-body.text-muted(*ngIf='askAiLoading')
-                            i.fas.fa-spinner.fa-spin.me-2
-                            span 提问中...
-                        .translation-popover-body.translation-popover-error(*ngIf='!askAiLoading && askAiError')
-                            p.mb-2 {{askAiError}}
-                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryAskAi()', *ngIf='hasTranslationSelection() && askAiQuestion.trim()')
-                                i.fas.fa-rotate-right.me-1
-                                span Retry
-                        .translation-popover-body(*ngIf='!askAiLoading && !askAiError && askAiResult') {{askAiResult}}
-                        .translation-popover-body.text-muted(*ngIf='!askAiLoading && !askAiError && !askAiResult') 输入问题后即可基于选中文本提问。
+                        ng-container(*ngIf='isAskAiTabActive()')
+                            .translation-ask-form
+                                .translation-ask-config
+                                    label.d-inline-flex.align-items-center.gap-2
+                                        span.translation-ask-footnote 思考强度
+                                        select.translation-ask-select(
+                                            [value]='translationSettings.askReasoningEffort',
+                                            (change)='setAskReasoningEffort($event.target.value)',
+                                            [disabled]='askAiLoading'
+                                        )
+                                            option(value='minimal') minimal
+                                            option(value='low') low
+                                            option(value='medium') medium
+                                            option(value='high') high
+                                            option(value='xhigh') xhigh
+                                    span.translation-ask-footnote Ctrl/Cmd+Enter 发送
+                                textarea.translation-ask-input(
+                                    [value]='askAiQuestion',
+                                    (input)='askAiQuestion = $event.target.value',
+                                    (keydown)='onAskAiQuestionKeyDown($event)',
+                                    placeholder='围绕选中文本输入你的问题...'
+                                )
+                                .d-flex.justify-content-end
+                                    button.btn.btn-primary.btn-sm(type='button', (click)='submitAskAiQuestion()', [disabled]='askAiLoading || !askAiQuestion.trim()')
+                                        i.fas.fa-paper-plane.me-1
+                                        span 提问
+                            .translation-popover-body.text-muted(*ngIf='askAiLoading')
+                                i.fas.fa-spinner.fa-spin.me-2
+                                span 提问中...
+                            .translation-popover-body.translation-popover-error(*ngIf='!askAiLoading && askAiError')
+                                p.mb-2 {{askAiError}}
+                                button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryAskAi()', *ngIf='hasTranslationSelection() && askAiQuestion.trim()')
+                                    i.fas.fa-rotate-right.me-1
+                                    span Retry
+                            .translation-popover-body(*ngIf='!askAiLoading && !askAiError && askAiResult') {{askAiResult}}
+                            .translation-popover-body.text-muted(*ngIf='!askAiLoading && !askAiError && !askAiResult') 输入问题后即可基于选中文本提问。
+                    .translation-popover-resize-handle((mousedown)='startTranslationPopoverResize($event)')
 
                 .markdown-preview-shell.w-100.h-100(
                     *ngIf='showMarkdownPreview()',
@@ -196,6 +255,25 @@
                     (keyup)='onMarkdownPreviewKeyUp()'
                 )
                     .markdown-preview([innerHTML]='markdownPreviewHtml')
+
+                .pdf-preview-shell.w-100.h-100(
+                    *ngIf='showPdfPreview()',
+                    tabindex='0',
+                    (mouseup)='onPdfPreviewMouseUp()',
+                    (keyup)='onPdfPreviewKeyUp()'
+                )
+                    .pdf-preview-loading(*ngIf='pdfLoading')
+                        .text-muted
+                            i.fas.fa-spinner.fa-spin.me-2
+                            span Loading PDF...
+                    .pdf-preview-error(*ngIf='!pdfLoading && pdfError')
+                        .pdf-preview-error-card
+                            h6.mb-2 PDF preview failed
+                            p.mb-0 {{pdfError}}
+                    .pdf-preview-stage(*ngIf='!pdfLoading && !pdfError')
+                        .pdf-preview-page(#pdfPreviewPage)
+                            canvas.pdf-preview-canvas(#pdfCanvas)
+                            .pdf-text-layer(#pdfTextLayer)
 
                 .w-100.h-100(#editorHost, [hidden]='shouldHideEditorHost()')
 

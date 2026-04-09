@@ -25,6 +25,9 @@ module.exports = (_env, argv = {}) => {
     resolve: {
       modules: ['.', 'src', 'node_modules'].map(x => path.join(__dirname, x)),
       extensions: ['.ts', '.js'],
+      alias: {
+        canvas: false,
+      },
     },
     module: {
       rules: [

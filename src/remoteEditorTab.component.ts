@@ -4,6 +4,7 @@ import { SFTPSession } from 'tabby-ssh'
 import {
     askAiAboutSelection,
     getDefaultTranslationConfig,
+    ReasoningEffort,
     translateSelection,
     TranslationConfig,
     TranslationEndpointMode,
@@ -11,8 +12,9 @@ import {
 } from './translationClient'
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
+type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
 
-type TranslationSelectionSource = 'monaco' | 'markdown'
+type TranslationSelectionSource = 'monaco' | 'markdown' | 'pdf'
 type TranslationPopoverTab = 'translate' | 'ask_ai'
 
 type TranslationAnchor = {
@@ -55,6 +57,17 @@ function getDomPurify (): any {
     // Sanitize rendered HTML before binding it into the Angular template.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require('monaco-editor/esm/vs/base/browser/dompurify/dompurify')
+}
+
+let pdfJsModule: PdfJs | null | undefined
+function getPdfJs (): PdfJs {
+    if (pdfJsModule) {
+        return pdfJsModule
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    pdfJsModule = require('pdfjs-dist/webpack') as PdfJs
+    return pdfJsModule
 }
 
 function escapeHtml (value: string): string {
@@ -350,6 +363,28 @@ const LARGE_FILE_REJECT_SIZE = 20 * 1024 * 1024   // 20MB
 const SIDEBAR_MIN_WIDTH = 150
 const SIDEBAR_MAX_WIDTH = 400
 const TRANSLATION_MAX_SELECTION_LENGTH = 4000
+const TRANSLATION_POPOVER_MIN_WIDTH = 280
+const TRANSLATION_POPOVER_MIN_HEIGHT = 220
+const PDF_MIN_ZOOM = 0.5
+const PDF_MAX_ZOOM = 3
+const PDF_ZOOM_STEP = 0.25
+const ASK_REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
+
+function clampNumber (value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) {
+        return min
+    }
+    return Math.max(min, Math.min(max, value))
+}
+
+function hasPdfMagicHeader (buffer: Buffer): boolean {
+    return buffer.length >= 5 && buffer.slice(0, 5).toString('ascii') === '%PDF-'
+}
+
+function isPdfPreviewableFile (buffer: Buffer, pathOrName: string): boolean {
+    const normalized = (pathOrName ?? '').trim().toLowerCase()
+    return hasPdfMagicHeader(buffer) || (normalized.endsWith('.pdf') && isBinaryContent(buffer))
+}
 
 function formatBytes (size: number): string {
     if (!Number.isFinite(size) || size < 0) {
@@ -764,6 +799,92 @@ function luminance (rgb: RGB): number {
             background: rgba(255, 193, 7, 0.12);
         }
 
+        .pdf-preview-shell {
+            overflow: auto;
+            padding: 1.25rem;
+            background:
+                linear-gradient(180deg, rgba(0, 0, 0, 0.04), transparent 120px),
+                var(--theme-bg, var(--bs-body-bg));
+            color: var(--bs-body-color, inherit);
+        }
+
+        .pdf-preview-stage {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100%;
+        }
+
+        .pdf-preview-page {
+            --scale-factor: 1;
+            position: relative;
+            background: #fff;
+            box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.16);
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .pdf-preview-canvas {
+            display: block;
+        }
+
+        .pdf-preview-loading,
+        .pdf-preview-error {
+            min-height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .pdf-preview-error-card {
+            max-width: 520px;
+            padding: 1rem 1.25rem;
+            border-radius: 0.85rem;
+            border: 1px solid var(--bs-warning, #ffc107);
+            background: rgba(255, 193, 7, 0.12);
+        }
+
+        .pdf-text-layer {
+            position: absolute;
+            text-align: initial;
+            inset: 0;
+            overflow: hidden;
+            opacity: 0.25;
+            line-height: 1;
+            -webkit-text-size-adjust: none;
+            -moz-text-size-adjust: none;
+            text-size-adjust: none;
+            forced-color-adjust: none;
+            transform-origin: 0 0;
+            z-index: 2;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .pdf-text-layer :is(span, br) {
+            color: transparent;
+            position: absolute;
+            white-space: pre;
+            cursor: text;
+            transform-origin: 0 0;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .pdf-text-layer span.markedContent {
+            top: 0;
+            height: 0;
+        }
+
+        .pdf-text-layer ::selection {
+            background: AccentColor;
+        }
+
+        .pdf-text-layer ::-moz-selection {
+            background: AccentColor;
+        }
+
         .translation-toolbar-btn {
             min-width: 0;
         }
@@ -779,9 +900,13 @@ function luminance (rgb: RGB): number {
         .translation-popover {
             position: absolute;
             z-index: 31;
-            width: min(420px, calc(100% - 1.5rem));
-            max-height: min(60vh, 520px);
-            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            min-width: 280px;
+            min-height: 220px;
+            max-width: calc(100% - 24px);
+            max-height: calc(100% - 24px);
+            overflow: hidden;
             padding: 0.9rem;
             border-radius: 0.85rem;
             border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
@@ -796,6 +921,7 @@ function luminance (rgb: RGB): number {
             justify-content: space-between;
             gap: 0.5rem;
             margin-bottom: 0.75rem;
+            user-select: none;
         }
 
         .translation-popover-actions {
@@ -804,10 +930,33 @@ function luminance (rgb: RGB): number {
             gap: 0.35rem;
         }
 
+        .translation-popover-drag-area {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+            flex: 1;
+            cursor: move;
+        }
+
+        .translation-popover-drag-hint {
+            font-size: 11px;
+            color: var(--bs-secondary-color, rgba(0, 0, 0, 0.6));
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
         .translation-popover-tabs {
             display: flex;
             gap: 0.5rem;
             margin-bottom: 0.75rem;
+        }
+
+        .translation-popover-main {
+            min-height: 0;
+            flex: 1;
+            overflow: auto;
+            padding-right: 0.15rem;
         }
 
         .translation-popover-source {
@@ -842,6 +991,29 @@ function luminance (rgb: RGB): number {
             margin-bottom: 0.75rem;
         }
 
+        .translation-ask-config {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .translation-ask-select {
+            min-width: 120px;
+            padding: 0.35rem 0.55rem;
+            border-radius: 0.55rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--bs-body-bg, #fff);
+            color: inherit;
+        }
+
+        .translation-ask-select:focus {
+            outline: 0;
+            border-color: var(--bs-primary, #0d6efd);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        }
+
         .translation-ask-input {
             width: 100%;
             min-height: 88px;
@@ -863,6 +1035,27 @@ function luminance (rgb: RGB): number {
         .translation-ask-footnote {
             font-size: 12px;
             color: var(--bs-secondary-color, rgba(0, 0, 0, 0.6));
+        }
+
+        .translation-popover-resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 18px;
+            height: 18px;
+            cursor: nwse-resize;
+        }
+
+        .translation-popover-resize-handle::before {
+            content: '';
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            width: 9px;
+            height: 9px;
+            border-right: 2px solid var(--bs-secondary-color, rgba(0, 0, 0, 0.45));
+            border-bottom: 2px solid var(--bs-secondary-color, rgba(0, 0, 0, 0.45));
+            border-radius: 0 0 4px 0;
         }
 
         .translation-settings-backdrop {
@@ -965,6 +1158,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     translationPopoverTop = 0
     translationPopoverLeft = 0
     translationPopoverWidth = 360
+    translationPopoverHeight = 320
     translationSelectedText = ''
     translationResult = ''
     translationError = ''
@@ -975,6 +1169,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     askAiError = ''
     askAiLoading = false
     askAiEndpointUsed = ''
+    isPdf = false
+    pdfLoading = false
+    pdfPageLoading = false
+    pdfError = ''
+    pdfPageCount = 0
+    pdfCurrentPage = 1
+    pdfZoom = 1
 
     // Sidebar file tree
     sidebarVisible = true
@@ -992,6 +1193,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
     @ViewChild('contentArea', { static: true }) contentArea?: ElementRef<HTMLElement>
+    @ViewChild('pdfCanvas') pdfCanvas?: ElementRef<HTMLCanvasElement>
+    @ViewChild('pdfTextLayer') pdfTextLayer?: ElementRef<HTMLElement>
+    @ViewChild('pdfPreviewPage') pdfPreviewPage?: ElementRef<HTMLElement>
 
     private sftp?: SFTPSession
     private editor?: import('monaco-editor').editor.IStandaloneCodeEditor
@@ -1028,6 +1232,25 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private translationUiCleanup: (() => void) | null = null
     private translationCache = new Map<string, string>()
     private askAiCache = new Map<string, string>()
+    private translationPopoverManualPosition = false
+    private translationPopoverDragMoveListener: ((event: MouseEvent) => void) | null = null
+    private translationPopoverDragUpListener: (() => void) | null = null
+    private translationPopoverResizeMoveListener: ((event: MouseEvent) => void) | null = null
+    private translationPopoverResizeUpListener: (() => void) | null = null
+    private translationPopoverDragStartX = 0
+    private translationPopoverDragStartY = 0
+    private translationPopoverDragStartLeft = 0
+    private translationPopoverDragStartTop = 0
+    private translationPopoverResizeStartX = 0
+    private translationPopoverResizeStartY = 0
+    private translationPopoverResizeStartWidth = 0
+    private translationPopoverResizeStartHeight = 0
+    private pdfLoadingTask: any | null = null
+    private pdfDocument: any | null = null
+    private pdfRenderTask: any | null = null
+    private pdfTextLayerRenderTask: any | null = null
+    private pdfRenderTimer: number | null = null
+    private pdfRenderToken = 0
 
     constructor (
         injector: Injector,
@@ -1090,10 +1313,27 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.translationRequestAbort = null
         this.askAiRequestAbort?.abort()
         this.askAiRequestAbort = null
+        if (this.translationPopoverDragMoveListener) {
+            document.removeEventListener('mousemove', this.translationPopoverDragMoveListener)
+        }
+        if (this.translationPopoverDragUpListener) {
+            document.removeEventListener('mouseup', this.translationPopoverDragUpListener)
+        }
+        if (this.translationPopoverResizeMoveListener) {
+            document.removeEventListener('mousemove', this.translationPopoverResizeMoveListener)
+        }
+        if (this.translationPopoverResizeUpListener) {
+            document.removeEventListener('mouseup', this.translationPopoverResizeUpListener)
+        }
+        this.translationPopoverDragMoveListener = null
+        this.translationPopoverDragUpListener = null
+        this.translationPopoverResizeMoveListener = null
+        this.translationPopoverResizeUpListener = null
         if (this.translationSelectionTimer !== null) {
             clearTimeout(this.translationSelectionTimer)
             this.translationSelectionTimer = null
         }
+        this.disposePdfPreview()
         this.disposeDiffEditor()
         this.disposeEditor()
         this.sftp = undefined
@@ -1541,21 +1781,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             const buffer = await this.readRemoteFileBuffer()
-            this.loadedBuffer = buffer
-            this.isBinary = isBinaryContent(buffer)
-
-            if (this.isBinary && !this.forceOpenBinary) {
-                this.forceOpenBinary = false
-                this.status = 'Binary file'
-                return
-            }
-
-            this.detectAndApplyEncoding(buffer)
-            const text = this.decodeBuffer(buffer, this.encoding)
-            this.initEditorIfNeeded()
-            this.setEditorValue(text)
+            await this.applyLoadedBuffer(buffer)
             this.dirty = false
-            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
         } catch (e: any) {
             this.status = 'Reload failed'
             this.notifications.error(e?.message ?? 'Failed to reload file')
@@ -1635,6 +1862,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             apiKey: (this.translationSettingsDraft.apiKey ?? '').trim(),
             model: (this.translationSettingsDraft.model ?? '').trim(),
             askModel: (this.translationSettingsDraft.askModel ?? '').trim(),
+            askReasoningEffort: this.normalizeAskReasoningEffort(this.translationSettingsDraft.askReasoningEffort),
             targetLanguage: (this.translationSettingsDraft.targetLanguage ?? '').trim(),
             endpointMode: (this.translationSettingsDraft.endpointMode ?? 'auto') as TranslationEndpointMode,
             timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 30000,
@@ -1667,6 +1895,27 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.translationConfigError = ''
         this.translationSettingsVisible = false
         this.notifications.notice('AI settings saved')
+        this.safeDetectChanges()
+    }
+
+    setAskReasoningEffort (value: string): void {
+        const next = this.normalizeAskReasoningEffort(value, this.translationSettings.askReasoningEffort)
+        if (next === this.translationSettings.askReasoningEffort) {
+            return
+        }
+
+        this.translationSettings = {
+            ...this.translationSettings,
+            askReasoningEffort: next,
+        }
+        this.translationSettingsDraft = {
+            ...this.translationSettingsDraft,
+            askReasoningEffort: next,
+        }
+        this.askAiResult = ''
+        this.askAiError = ''
+        this.askAiEndpointUsed = ''
+        this.storeTranslationSettings(this.translationSettings)
         this.safeDetectChanges()
     }
 
@@ -1800,12 +2049,28 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return this.languageId === 'markdown' && this.markdownPreview && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
     }
 
+    showPdfPreview (): boolean {
+        return this.isPdf && !this.diffMode && !this.openError
+    }
+
+    showPdfToolbar (): boolean {
+        return this.showPdfPreview()
+    }
+
     shouldHideEditorHost (): boolean {
-        return !!this.openError || (this.isBinary && !this.forceOpenBinary) || this.showMarkdownPreview()
+        return !!this.openError || (this.isBinary && !this.forceOpenBinary && !this.showPdfPreview()) || this.showMarkdownPreview() || this.showPdfPreview()
     }
 
     hasTranslationSelection (): boolean {
         return !!this.translationSelectionState?.text
+    }
+
+    getPdfZoomLabel (): string {
+        return `${Math.round(this.pdfZoom * 100)}%`
+    }
+
+    isPdfBusy (): boolean {
+        return this.pdfLoading || this.pdfPageLoading
     }
 
     setMarkdownPreview (preview: boolean): void {
@@ -1874,6 +2139,48 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.scheduleMarkdownSelectionUpdate()
     }
 
+    onPdfPreviewMouseUp (): void {
+        this.schedulePdfSelectionUpdate()
+    }
+
+    onPdfPreviewKeyUp (): void {
+        this.schedulePdfSelectionUpdate()
+    }
+
+    goToPreviousPdfPage (): void {
+        if (this.pdfCurrentPage <= 1 || this.isPdfBusy()) {
+            return
+        }
+        this.clearTranslationSelection('pdf')
+        this.pdfCurrentPage--
+        this.updatePdfStatus()
+        this.safeDetectChanges()
+        this.schedulePdfRender()
+    }
+
+    goToNextPdfPage (): void {
+        if (this.pdfCurrentPage >= this.pdfPageCount || this.isPdfBusy()) {
+            return
+        }
+        this.clearTranslationSelection('pdf')
+        this.pdfCurrentPage++
+        this.updatePdfStatus()
+        this.safeDetectChanges()
+        this.schedulePdfRender()
+    }
+
+    zoomOutPdf (): void {
+        this.setPdfZoom(this.pdfZoom - PDF_ZOOM_STEP)
+    }
+
+    zoomInPdf (): void {
+        this.setPdfZoom(this.pdfZoom + PDF_ZOOM_STEP)
+    }
+
+    resetPdfZoom (): void {
+        this.setPdfZoom(1)
+    }
+
     private buildReopenEncodingMenuItems (): any[] {
         return this.encodings.map(enc => ({
             type: 'radio',
@@ -1893,7 +2200,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     openEncodingMenu (event?: MouseEvent): void {
-        if (this.openError || this.loading || this.saving || this.diffMode || (this.isBinary && !this.forceOpenBinary)) {
+        if (this.openError || this.loading || this.saving || this.diffMode || this.showPdfPreview() || (this.isBinary && !this.forceOpenBinary)) {
             return
         }
 
@@ -2061,6 +2368,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 askModel: typeof parsed?.askModel === 'string' && parsed.askModel.trim()
                     ? parsed.askModel.trim()
                     : fallback.askModel,
+                askReasoningEffort: this.normalizeAskReasoningEffort(parsed?.askReasoningEffort, fallback.askReasoningEffort),
                 targetLanguage: typeof parsed?.targetLanguage === 'string' && parsed.targetLanguage.trim()
                     ? parsed.targetLanguage.trim()
                     : fallback.targetLanguage,
@@ -2078,6 +2386,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } catch {
             // ignore
         }
+    }
+
+    private normalizeAskReasoningEffort (value: unknown, fallback: ReasoningEffort = 'medium'): ReasoningEffort {
+        const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+        return (ASK_REASONING_EFFORT_OPTIONS as string[]).includes(normalized)
+            ? normalized as ReasoningEffort
+            : fallback
     }
 
     private normalizeRemotePath (path: string): string {
@@ -2504,6 +2819,252 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }) as SFTPFileItem[]
     }
 
+    private async applyLoadedBuffer (buffer: Buffer): Promise<void> {
+        this.loadedBuffer = buffer
+        this.isPdf = isPdfPreviewableFile(buffer, this.name ?? this.path ?? '')
+        this.isBinary = isBinaryContent(buffer)
+
+        if (this.isPdf) {
+            await this.loadPdfPreview(buffer)
+            return
+        }
+
+        this.disposePdfPreview()
+
+        if (this.isBinary && !this.forceOpenBinary) {
+            this.status = 'Binary file'
+            return
+        }
+
+        this.detectAndApplyEncoding(buffer)
+        const text = this.decodeBuffer(buffer, this.encoding)
+        this.initEditorIfNeeded()
+        this.applyLanguageToEditor()
+        this.setEditorValue(text)
+        this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+    }
+
+    private async loadPdfPreview (buffer: Buffer): Promise<void> {
+        this.disposePdfPreview()
+        this.isPdf = true
+        this.pdfLoading = true
+        this.pdfPageLoading = false
+        this.pdfError = ''
+        this.pdfPageCount = 0
+        this.pdfCurrentPage = 1
+        this.pdfZoom = 1
+        this.status = 'Loading PDF...'
+        this.safeDetectChanges()
+
+        let loadingTask: any = null
+        try {
+            const pdfjs = getPdfJs()
+            loadingTask = pdfjs.getDocument({
+                data: new Uint8Array(buffer),
+                useWorkerFetch: false,
+            })
+
+            this.pdfLoadingTask = loadingTask
+            const documentProxy = await loadingTask.promise
+            if (this.pdfLoadingTask !== loadingTask) {
+                return
+            }
+
+            this.pdfDocument = documentProxy
+            this.pdfPageCount = documentProxy?.numPages ?? 0
+            if (!this.pdfPageCount) {
+                this.pdfError = 'PDF has no pages to preview'
+                this.status = 'PDF preview failed'
+                return
+            }
+
+            this.updatePdfStatus()
+            this.safeDetectChanges()
+            this.schedulePdfRender()
+        } catch (error: any) {
+            if (!this.isPdf || this.pdfLoadingTask !== loadingTask) {
+                return
+            }
+            this.pdfError = error?.message ?? 'Failed to load PDF preview'
+            this.status = 'PDF preview failed'
+        } finally {
+            if (this.isPdf && this.pdfLoadingTask === loadingTask) {
+                this.pdfLoading = false
+                this.safeDetectChanges()
+            }
+        }
+    }
+
+    private schedulePdfRender (): void {
+        if (this.pdfRenderTimer !== null) {
+            clearTimeout(this.pdfRenderTimer)
+        }
+
+        this.pdfRenderTimer = window.setTimeout(() => {
+            this.pdfRenderTimer = null
+            void this.renderCurrentPdfPage()
+        }, 0)
+    }
+
+    private async renderCurrentPdfPage (): Promise<void> {
+        if (!this.showPdfPreview() || !this.pdfDocument) {
+            return
+        }
+
+        const canvas = this.pdfCanvas?.nativeElement
+        const textLayer = this.pdfTextLayer?.nativeElement
+        const pageHost = this.pdfPreviewPage?.nativeElement
+        if (!canvas || !textLayer || !pageHost) {
+            this.schedulePdfRender()
+            return
+        }
+
+        this.cancelPdfRender()
+        const renderToken = ++this.pdfRenderToken
+        this.pdfError = ''
+        this.pdfPageLoading = true
+        this.safeDetectChanges()
+
+        try {
+            const pdfjs = getPdfJs()
+            const page = await this.pdfDocument.getPage(this.pdfCurrentPage)
+            if (renderToken !== this.pdfRenderToken) {
+                return
+            }
+
+            const viewport = page.getViewport({ scale: this.pdfZoom })
+            const outputScale = window.devicePixelRatio || 1
+            const context = canvas.getContext('2d', { alpha: false })
+            if (!context) {
+                throw new Error('Canvas context is not available for PDF preview')
+            }
+
+            canvas.width = Math.max(1, Math.floor(viewport.width * outputScale))
+            canvas.height = Math.max(1, Math.floor(viewport.height * outputScale))
+            canvas.style.width = `${viewport.width}px`
+            canvas.style.height = `${viewport.height}px`
+            textLayer.innerHTML = ''
+            textLayer.style.width = `${viewport.width}px`
+            textLayer.style.height = `${viewport.height}px`
+            pageHost.style.width = `${viewport.width}px`
+            pageHost.style.height = `${viewport.height}px`
+            pageHost.style.setProperty('--scale-factor', `${viewport.scale}`)
+
+            const renderTask = page.render({
+                canvasContext: context,
+                viewport,
+                transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+            })
+            this.pdfRenderTask = renderTask
+            await renderTask.promise
+            if (renderToken !== this.pdfRenderToken) {
+                return
+            }
+
+            const textContent = await page.getTextContent()
+            if (renderToken !== this.pdfRenderToken) {
+                return
+            }
+
+            const textDivs: HTMLElement[] = []
+            const textDivProperties = new WeakMap<HTMLElement, object>()
+            const textLayerTask = pdfjs.renderTextLayer({
+                textContentSource: textContent,
+                container: textLayer,
+                viewport,
+                textDivs,
+                textDivProperties,
+            })
+            this.pdfTextLayerRenderTask = textLayerTask
+            await textLayerTask.promise
+        } catch (error: any) {
+            const message = `${error?.message ?? ''}`.toLowerCase()
+            const cancelled = renderToken !== this.pdfRenderToken || message.includes('cancel')
+            if (!cancelled) {
+                this.pdfError = error?.message ?? 'Failed to render PDF page'
+                this.status = 'PDF preview failed'
+            }
+        } finally {
+            if (renderToken === this.pdfRenderToken) {
+                this.pdfPageLoading = false
+                this.safeDetectChanges()
+            }
+        }
+    }
+
+    private cancelPdfRender (): void {
+        this.pdfRenderTask?.cancel?.()
+        this.pdfTextLayerRenderTask?.cancel?.()
+        this.pdfRenderTask = null
+        this.pdfTextLayerRenderTask = null
+    }
+
+    private disposePdfPreview (): void {
+        if (this.pdfRenderTimer !== null) {
+            clearTimeout(this.pdfRenderTimer)
+            this.pdfRenderTimer = null
+        }
+
+        this.cancelPdfRender()
+        this.pdfRenderToken++
+
+        try {
+            this.pdfLoadingTask?.destroy?.()
+        } catch {
+            // ignore
+        }
+        try {
+            this.pdfDocument?.cleanup?.()
+        } catch {
+            // ignore
+        }
+        try {
+            this.pdfDocument?.destroy?.()
+        } catch {
+            // ignore
+        }
+
+        this.pdfLoadingTask = null
+        this.pdfDocument = null
+        this.pdfLoading = false
+        this.pdfPageLoading = false
+        this.pdfError = ''
+        this.pdfPageCount = 0
+        this.pdfCurrentPage = 1
+        this.pdfZoom = 1
+        this.isPdf = false
+    }
+
+    private setPdfZoom (nextZoom: number): void {
+        const normalized = Math.round(clampNumber(nextZoom, PDF_MIN_ZOOM, PDF_MAX_ZOOM) * 100) / 100
+        if (normalized === this.pdfZoom || this.isPdfBusy()) {
+            return
+        }
+
+        this.clearTranslationSelection('pdf')
+        this.pdfZoom = normalized
+        this.safeDetectChanges()
+        this.schedulePdfRender()
+    }
+
+    private updatePdfStatus (): void {
+        if (!this.isPdf) {
+            return
+        }
+
+        if (this.pdfError) {
+            this.status = 'PDF preview failed'
+            return
+        }
+
+        if (!this.pdfPageCount) {
+            this.status = 'Loading PDF...'
+            return
+        }
+
+        this.status = `PDF ${this.pdfCurrentPage}/${this.pdfPageCount}`
+    }
+
     private async loadCurrentFile (opts: { onCancel: 'close'|'keep' }): Promise<boolean> {
         this.status = 'Loading...'
         try {
@@ -2553,27 +3114,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             const buffer = await this.readRemoteFileBuffer()
-            this.loadedBuffer = buffer
-
-            this.isBinary = isBinaryContent(buffer)
-            if (this.isBinary && !this.forceOpenBinary) {
-                this.status = 'Binary file'
-                return true
-            }
-
-            this.detectAndApplyEncoding(buffer)
-            const text = this.decodeBuffer(buffer, this.encoding)
-
-            this.initEditorIfNeeded()
-            this.applyLanguageToEditor()
-            this.setEditorValue(text)
-            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
+            await this.applyLoadedBuffer(buffer)
             return true
         } catch (e: any) {
             const errMsg = e?.message ?? e?.toString?.() ?? ''
             if (/no.?such.?file|NoSuchFile/i.test(errMsg)) {
+                this.disposePdfPreview()
                 this.loadedBuffer = Buffer.alloc(0)
                 this.isBinary = false
+                this.isPdf = false
                 this.encoding = 'utf-8'
                 this.remoteMtime = null
                 this.initEditorIfNeeded()
@@ -2632,6 +3181,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return false
         }
         if (this.saving || this.loading) {
+            return false
+        }
+        if (this.showPdfPreview()) {
+            this.notifications.notice('PDF preview is read-only')
             return false
         }
         if (!this.editor) {
@@ -2735,25 +3288,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             const buffer = await this.readRemoteFileBuffer()
-            this.loadedBuffer = buffer
-            this.isBinary = isBinaryContent(buffer)
             this.forceOpenBinary = false
-
-            if (this.isBinary) {
-                this.disposeDiffEditor()
-                this.editorHost?.nativeElement && (this.editorHost.nativeElement.innerHTML = '')
-                this.diffMode = false
-                this.dirty = false
-                this.status = 'Binary file'
-                return
-            }
-
-            this.detectAndApplyEncoding(buffer)
-            const remoteText = this.decodeBuffer(buffer, this.encoding)
-
-            this.exitDiffToEditor(remoteText)
+            this.disposeDiffEditor()
+            this.editorHost?.nativeElement && (this.editorHost.nativeElement.innerHTML = '')
+            this.diffMode = false
+            await this.applyLoadedBuffer(buffer)
             this.dirty = false
-            this.status = this.readOnlyLargeFile ? 'Read-only: Large file' : 'Ready'
         } catch (e: any) {
             this.status = 'Reload failed'
             this.notifications.error(e?.message ?? 'Failed to reload remote file')
@@ -3003,10 +3543,24 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             if (!this.translationSelectionState) {
                 return
             }
-            if (this.translationSelectionState.source === 'monaco') {
-                this.updateMonacoSelectionOverlay()
-            } else {
-                this.scheduleMarkdownSelectionUpdate()
+            if (this.translationPopoverVisible) {
+                if (this.translationPopoverManualPosition) {
+                    this.clampTranslationPopoverIntoView()
+                } else {
+                    this.positionTranslationPopover(this.translationSelectionState.anchor)
+                }
+            }
+
+            switch (this.translationSelectionState.source) {
+                case 'monaco':
+                    this.updateMonacoSelectionOverlay()
+                    break
+                case 'markdown':
+                    this.scheduleMarkdownSelectionUpdate()
+                    break
+                case 'pdf':
+                    this.schedulePdfSelectionUpdate()
+                    break
             }
         }
 
@@ -3097,6 +3651,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }, 0)
     }
 
+    private schedulePdfSelectionUpdate (): void {
+        if (this.translationSelectionTimer !== null) {
+            clearTimeout(this.translationSelectionTimer)
+        }
+        this.translationSelectionTimer = window.setTimeout(() => {
+            this.translationSelectionTimer = null
+            this.updatePdfSelectionOverlay()
+        }, 0)
+    }
+
     private updateMarkdownSelectionOverlay (): void {
         if (!this.showMarkdownPreview()) {
             this.clearTranslationSelection('markdown')
@@ -3104,34 +3668,51 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         const preview = this.contentArea?.nativeElement.querySelector('.markdown-preview') as HTMLElement | null
-        const range = this.getMarkdownSelectionRange(preview)
-        if (!preview || !range) {
-            this.clearTranslationSelection('markdown')
+        this.updateDomSelectionOverlay(preview, 'markdown', 'markdown')
+    }
+
+    private updatePdfSelectionOverlay (): void {
+        if (!this.showPdfPreview()) {
+            this.clearTranslationSelection('pdf')
+            return
+        }
+
+        this.updateDomSelectionOverlay(this.pdfPreviewPage?.nativeElement ?? null, 'pdf', 'pdf')
+    }
+
+    private updateDomSelectionOverlay (
+        container: HTMLElement | null,
+        source: TranslationSelectionSource,
+        sourceType: string,
+    ): void {
+        const range = this.getContainedSelectionRange(container)
+        if (!container || !range) {
+            this.clearTranslationSelection(source)
             return
         }
 
         const text = this.normalizeTranslationSelectionText(window.getSelection?.()?.toString?.() ?? '')
         if (!text) {
-            this.clearTranslationSelection('markdown')
+            this.clearTranslationSelection(source)
             return
         }
 
         const rect = range.getBoundingClientRect()
         if (!rect || (!rect.width && !rect.height)) {
-            this.clearTranslationSelection('markdown')
+            this.clearTranslationSelection(source)
             return
         }
 
         const containerRect = this.contentArea?.nativeElement.getBoundingClientRect()
         if (!containerRect) {
-            this.clearTranslationSelection('markdown')
+            this.clearTranslationSelection(source)
             return
         }
 
         this.setTranslationSelectionState({
             text,
-            source: 'markdown',
-            sourceType: 'markdown',
+            source,
+            sourceType,
             anchor: {
                 top: rect.top - containerRect.top + 4,
                 left: rect.left - containerRect.left + rect.width / 2,
@@ -3139,8 +3720,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         })
     }
 
-    private getMarkdownSelectionRange (preview: HTMLElement | null): Range | null {
-        if (!preview) {
+    private getContainedSelectionRange (container: HTMLElement | null): Range | null {
+        if (!container) {
             return null
         }
 
@@ -3151,7 +3732,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         const range = selection.getRangeAt(0)
         const commonAncestor = range.commonAncestorContainer
-        if (!preview.contains(commonAncestor.nodeType === Node.ELEMENT_NODE ? commonAncestor : commonAncestor.parentNode)) {
+        const anchorNode = commonAncestor.nodeType === Node.ELEMENT_NODE ? commonAncestor : commonAncestor.parentNode
+        if (!anchorNode || !container.contains(anchorNode)) {
             return null
         }
 
@@ -3190,11 +3772,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.askAiLoading = false
             this.askAiEndpointUsed = ''
             this.translationPopoverVisible = false
+            this.translationPopoverManualPosition = false
         }
 
         this.translationButtonVisible = !this.translationPopoverVisible
         if (this.translationPopoverVisible) {
-            this.positionTranslationPopover(state.anchor)
+            if (this.translationPopoverManualPosition) {
+                this.clampTranslationPopoverIntoView()
+            } else {
+                this.positionTranslationPopover(state.anchor)
+            }
         }
 
         this.safeDetectChanges()
@@ -3208,15 +3795,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     private positionTranslationPopover (anchor: TranslationAnchor): void {
-        const host = this.contentArea?.nativeElement
-        const hostRect = host?.getBoundingClientRect()
-        const width = Math.min(420, Math.max(260, (hostRect?.width ?? 420) - 24))
-        const left = Math.max(12, Math.min(anchor.left - width / 2, Math.max(12, (hostRect?.width ?? width) - width - 12)))
-        const top = Math.max(12, Math.min(anchor.top + 12, Math.max(12, (hostRect?.height ?? 400) - 220)))
+        const width = this.clampTranslationPopoverWidth(this.translationPopoverWidth || 360)
+        const height = this.clampTranslationPopoverHeight(this.translationPopoverHeight || 320)
+        const left = anchor.left - width / 2
+        const top = anchor.top + 12
 
         this.translationPopoverWidth = width
-        this.translationPopoverLeft = left
-        this.translationPopoverTop = top
+        this.translationPopoverHeight = height
+        this.setTranslationPopoverPosition(left, top, width, height)
     }
 
     private openTranslationPopover (): void {
@@ -3227,8 +3813,126 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.translationSelectedText = this.translationSelectionState.text
         this.translationPopoverVisible = true
         this.translationButtonVisible = false
-        this.positionTranslationPopover(this.translationSelectionState.anchor)
+        if (this.translationPopoverManualPosition) {
+            this.clampTranslationPopoverIntoView()
+        } else {
+            this.positionTranslationPopover(this.translationSelectionState.anchor)
+        }
         this.safeDetectChanges()
+    }
+
+    private clampTranslationPopoverWidth (width: number): number {
+        const hostWidth = this.contentArea?.nativeElement.getBoundingClientRect()?.width ?? 420
+        return Math.round(clampNumber(width, TRANSLATION_POPOVER_MIN_WIDTH, Math.max(TRANSLATION_POPOVER_MIN_WIDTH, hostWidth - 24)))
+    }
+
+    private clampTranslationPopoverHeight (height: number): number {
+        const hostHeight = this.contentArea?.nativeElement.getBoundingClientRect()?.height ?? 420
+        return Math.round(clampNumber(height, TRANSLATION_POPOVER_MIN_HEIGHT, Math.max(TRANSLATION_POPOVER_MIN_HEIGHT, hostHeight - 24)))
+    }
+
+    private setTranslationPopoverPosition (left: number, top: number, width = this.translationPopoverWidth, height = this.translationPopoverHeight): void {
+        const hostRect = this.contentArea?.nativeElement.getBoundingClientRect()
+        const maxLeft = Math.max(12, (hostRect?.width ?? width + 24) - width - 12)
+        const maxTop = Math.max(12, (hostRect?.height ?? height + 24) - height - 12)
+
+        this.translationPopoverLeft = Math.round(clampNumber(left, 12, maxLeft))
+        this.translationPopoverTop = Math.round(clampNumber(top, 12, maxTop))
+    }
+
+    private clampTranslationPopoverIntoView (): void {
+        this.translationPopoverWidth = this.clampTranslationPopoverWidth(this.translationPopoverWidth)
+        this.translationPopoverHeight = this.clampTranslationPopoverHeight(this.translationPopoverHeight)
+        this.setTranslationPopoverPosition(this.translationPopoverLeft, this.translationPopoverTop)
+        this.safeDetectChanges()
+    }
+
+    startTranslationPopoverDrag (event: MouseEvent): void {
+        if (!this.translationPopoverVisible) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+
+        if (this.translationPopoverDragMoveListener) {
+            document.removeEventListener('mousemove', this.translationPopoverDragMoveListener)
+        }
+        if (this.translationPopoverDragUpListener) {
+            document.removeEventListener('mouseup', this.translationPopoverDragUpListener)
+        }
+
+        this.translationPopoverManualPosition = true
+        this.translationPopoverDragStartX = event.clientX
+        this.translationPopoverDragStartY = event.clientY
+        this.translationPopoverDragStartLeft = this.translationPopoverLeft
+        this.translationPopoverDragStartTop = this.translationPopoverTop
+
+        this.translationPopoverDragMoveListener = (moveEvent: MouseEvent): void => {
+            const nextLeft = this.translationPopoverDragStartLeft + (moveEvent.clientX - this.translationPopoverDragStartX)
+            const nextTop = this.translationPopoverDragStartTop + (moveEvent.clientY - this.translationPopoverDragStartY)
+            this.setTranslationPopoverPosition(nextLeft, nextTop)
+            this.safeDetectChanges()
+        }
+
+        this.translationPopoverDragUpListener = (): void => {
+            if (this.translationPopoverDragMoveListener) {
+                document.removeEventListener('mousemove', this.translationPopoverDragMoveListener)
+            }
+            if (this.translationPopoverDragUpListener) {
+                document.removeEventListener('mouseup', this.translationPopoverDragUpListener)
+            }
+            this.translationPopoverDragMoveListener = null
+            this.translationPopoverDragUpListener = null
+        }
+
+        document.addEventListener('mousemove', this.translationPopoverDragMoveListener)
+        document.addEventListener('mouseup', this.translationPopoverDragUpListener, { once: true })
+    }
+
+    startTranslationPopoverResize (event: MouseEvent): void {
+        if (!this.translationPopoverVisible) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+
+        if (this.translationPopoverResizeMoveListener) {
+            document.removeEventListener('mousemove', this.translationPopoverResizeMoveListener)
+        }
+        if (this.translationPopoverResizeUpListener) {
+            document.removeEventListener('mouseup', this.translationPopoverResizeUpListener)
+        }
+
+        this.translationPopoverManualPosition = true
+        this.translationPopoverResizeStartX = event.clientX
+        this.translationPopoverResizeStartY = event.clientY
+        this.translationPopoverResizeStartWidth = this.translationPopoverWidth
+        this.translationPopoverResizeStartHeight = this.translationPopoverHeight
+
+        this.translationPopoverResizeMoveListener = (moveEvent: MouseEvent): void => {
+            const nextWidth = this.translationPopoverResizeStartWidth + (moveEvent.clientX - this.translationPopoverResizeStartX)
+            const nextHeight = this.translationPopoverResizeStartHeight + (moveEvent.clientY - this.translationPopoverResizeStartY)
+            this.translationPopoverWidth = this.clampTranslationPopoverWidth(nextWidth)
+            this.translationPopoverHeight = this.clampTranslationPopoverHeight(nextHeight)
+            this.setTranslationPopoverPosition(this.translationPopoverLeft, this.translationPopoverTop)
+            this.safeDetectChanges()
+        }
+
+        this.translationPopoverResizeUpListener = (): void => {
+            if (this.translationPopoverResizeMoveListener) {
+                document.removeEventListener('mousemove', this.translationPopoverResizeMoveListener)
+            }
+            if (this.translationPopoverResizeUpListener) {
+                document.removeEventListener('mouseup', this.translationPopoverResizeUpListener)
+            }
+            this.translationPopoverResizeMoveListener = null
+            this.translationPopoverResizeUpListener = null
+        }
+
+        document.addEventListener('mousemove', this.translationPopoverResizeMoveListener)
+        document.addEventListener('mouseup', this.translationPopoverResizeUpListener, { once: true })
     }
 
     private buildTranslationCacheKey (state: TranslationSelectionState): string {
@@ -3249,6 +3953,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             base: config.apiBaseUrl,
             endpointMode: config.endpointMode,
             model: config.askModel,
+            reasoningEffort: config.askReasoningEffort,
             sourceType: state.sourceType,
             text: state.text,
             question,
