@@ -33,6 +33,26 @@
                     i.fas.fa-language.me-1
                     span {{getEncodingLabel()}}
 
+            .btn-group.btn-group-sm(*ngIf='showMarkdownToolbar()', role='group')
+                button.btn.text-nowrap(
+                    type='button',
+                    [class.btn-primary]='!markdownPreview',
+                    [class.btn-outline-secondary]='markdownPreview',
+                    (click)='setMarkdownPreview(false)',
+                    [disabled]='loading'
+                )
+                    i.fas.fa-code.me-1
+                    span Source
+                button.btn.text-nowrap(
+                    type='button',
+                    [class.btn-primary]='markdownPreview',
+                    [class.btn-outline-secondary]='!markdownPreview',
+                    (click)='setMarkdownPreview(true)',
+                    [disabled]='loading'
+                )
+                    i.fas.fa-book-open.me-1
+                    span Preview
+
             span.status-badge.badge.rounded-pill.text-nowrap([ngClass]='getStatusBadgeClass()') {{status}}
 
             span.flex-grow-1
@@ -84,7 +104,10 @@
                             button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
                             button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
-                .w-100.h-100(#editorHost, [hidden]='openError || (isBinary && !forceOpenBinary)')
+                .markdown-preview-shell.w-100.h-100(*ngIf='showMarkdownPreview()', (click)='onMarkdownPreviewClick($event)')
+                    .markdown-preview([innerHTML]='markdownPreviewHtml')
+
+                .w-100.h-100(#editorHost, [hidden]='shouldHideEditorHost()')
 
         //- File tree item template (recursive)
         ng-template(#fileTreeItem, let-item='item', let-depth='depth')

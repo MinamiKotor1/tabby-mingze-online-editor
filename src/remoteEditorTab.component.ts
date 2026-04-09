@@ -22,6 +22,61 @@ function getMonaco (): Monaco {
     return require('monaco-editor/esm/vs/editor/editor.api')
 }
 
+function getMarked (): any {
+    // Reuse the Markdown parser bundled with Monaco instead of adding another dependency.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('monaco-editor/esm/vs/base/common/marked/marked')
+}
+
+function getDomPurify (): any {
+    // Sanitize rendered HTML before binding it into the Angular template.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('monaco-editor/esm/vs/base/browser/dompurify/dompurify')
+}
+
+function escapeHtml (value: string): string {
+    return (value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+}
+
+function renderMarkdownPreview (text: string): string {
+    try {
+        const markedModule = getMarked()
+        const domPurifyModule = getDomPurify()
+        const parse = markedModule?.parse ?? markedModule?.marked ?? markedModule?.default?.parse ?? markedModule?.default
+        const sanitize = domPurifyModule?.sanitize ?? domPurifyModule?.default?.sanitize ?? domPurifyModule?.default
+
+        if (typeof parse !== 'function' || typeof sanitize !== 'function') {
+            return `<pre>${escapeHtml(text)}</pre>`
+        }
+
+        const rawHtml = parse(text ?? '', {
+            gfm: true,
+            breaks: false,
+            headerIds: true,
+            mangle: false,
+            langPrefix: 'language-',
+        })
+
+        return sanitize(rawHtml, {
+            USE_PROFILES: { html: true },
+            ALLOW_UNKNOWN_PROTOCOLS: false,
+        }) ?? ''
+    } catch (e: any) {
+        const detail = e?.message ?? 'Unknown error'
+        return `
+            <div class="markdown-preview-error">
+                <strong>Markdown render failed</strong>
+                <pre>${escapeHtml(detail)}</pre>
+            </div>
+        `
+    }
+}
+
 let monacoLanguagesLoaded = false
 function ensureMonacoLanguagesLoaded (): void {
     if (monacoLanguagesLoaded) {
@@ -546,6 +601,134 @@ function luminance (rgb: RGB): number {
             min-width: 0;
         }
 
+        .markdown-preview-shell {
+            overflow: auto;
+            padding: 1.5rem;
+            background: var(--theme-bg, var(--bs-body-bg));
+            color: var(--bs-body-color, inherit);
+        }
+
+        .markdown-preview {
+            max-width: 960px;
+            margin: 0 auto;
+            line-height: 1.7;
+            font-size: 14px;
+            color: inherit;
+            overflow-wrap: anywhere;
+        }
+
+        .markdown-preview > :first-child {
+            margin-top: 0;
+        }
+
+        .markdown-preview > :last-child {
+            margin-bottom: 0;
+        }
+
+        .markdown-preview h1,
+        .markdown-preview h2,
+        .markdown-preview h3,
+        .markdown-preview h4,
+        .markdown-preview h5,
+        .markdown-preview h6 {
+            margin-top: 1.75rem;
+            margin-bottom: 0.75rem;
+            line-height: 1.3;
+            font-weight: 700;
+        }
+
+        .markdown-preview p,
+        .markdown-preview ul,
+        .markdown-preview ol,
+        .markdown-preview blockquote,
+        .markdown-preview table,
+        .markdown-preview pre {
+            margin-bottom: 1rem;
+        }
+
+        .markdown-preview ul,
+        .markdown-preview ol {
+            padding-left: 1.5rem;
+        }
+
+        .markdown-preview li + li {
+            margin-top: 0.25rem;
+        }
+
+        .markdown-preview a {
+            color: var(--bs-link-color, #0d6efd);
+            text-decoration: underline;
+        }
+
+        .markdown-preview img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 0.5rem;
+        }
+
+        .markdown-preview blockquote {
+            padding: 0.75rem 1rem;
+            border-left: 4px solid var(--bs-border-color, rgba(0, 0, 0, 0.15));
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.02));
+            border-radius: 0.5rem;
+        }
+
+        .markdown-preview code {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.92em;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.35rem;
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.05));
+        }
+
+        .markdown-preview pre {
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.04));
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .markdown-preview pre code {
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+        }
+
+        .markdown-preview hr {
+            border: 0;
+            border-top: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            margin: 1.5rem 0;
+        }
+
+        .markdown-preview table {
+            display: block;
+            width: max-content;
+            max-width: 100%;
+            overflow: auto;
+            border-collapse: collapse;
+        }
+
+        .markdown-preview th,
+        .markdown-preview td {
+            padding: 0.6rem 0.8rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+        }
+
+        .markdown-preview th {
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.03));
+            font-weight: 600;
+        }
+
+        .markdown-preview-error {
+            padding: 1rem;
+            border: 1px solid var(--bs-warning, #ffc107);
+            border-radius: 0.75rem;
+            background: rgba(255, 193, 7, 0.12);
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -579,6 +762,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     // Conflict resolution / diff view
     diffMode = false
+
+    markdownPreview = false
+    markdownPreviewHtml = ''
 
     // Sidebar file tree
     sidebarVisible = true
@@ -1194,6 +1380,67 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     getEncodingLabel (): string {
         const found = this.encodings.find(x => x.id === this.encoding)
         return found?.label ?? this.encoding.toUpperCase()
+    }
+
+    showMarkdownToolbar (): boolean {
+        return this.languageId === 'markdown' && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
+    }
+
+    showMarkdownPreview (): boolean {
+        return this.languageId === 'markdown' && this.markdownPreview && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
+    }
+
+    shouldHideEditorHost (): boolean {
+        return !!this.openError || (this.isBinary && !this.forceOpenBinary) || this.showMarkdownPreview()
+    }
+
+    setMarkdownPreview (preview: boolean): void {
+        if (this.languageId !== 'markdown' || this.diffMode) {
+            return
+        }
+
+        if (preview) {
+            this.refreshMarkdownPreview()
+        }
+
+        if (this.markdownPreview === preview) {
+            return
+        }
+
+        this.markdownPreview = preview
+        this.safeDetectChanges()
+        this.relayoutEditors()
+
+        if (!preview) {
+            this.ensureCodeEditorFocus(this.editor)
+        }
+    }
+
+    onMarkdownPreviewClick (event: MouseEvent): void {
+        const target = event.target as Element | null
+        const anchor = target?.closest?.('a') as HTMLAnchorElement | null
+        const href = (anchor?.getAttribute('href') ?? '').trim()
+
+        if (!anchor || !href) {
+            return
+        }
+        if (href.startsWith('#')) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+
+        if (/^\/\//.test(href)) {
+            this.openExternalLink(`https:${href}`)
+            return
+        }
+        if (/^(https?:|mailto:|tel:)/i.test(href)) {
+            this.openExternalLink(href)
+            return
+        }
+
+        this.notifications.notice('Relative Markdown links are not supported yet')
     }
 
     private buildReopenEncodingMenuItems (): any[] {
@@ -2093,12 +2340,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             automaticLayout: true,
             readOnly: true,
             contextmenu: false,
+            wordWrap: 'on',
+            wrappingIndent: 'same',
         })
 
         this.editor.onDidChangeModelContent(() => {
             if (this.settingValue) {
                 return
             }
+            this.refreshMarkdownPreview()
             this.dirty = true
             this.status = 'Modified'
         })
@@ -2119,7 +2369,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         try {
             this.editor.setValue(text)
             this.dirty = false
-            this.editor.updateOptions({ readOnly: this.readOnlyLargeFile })
+            this.refreshMarkdownPreview(text)
+            this.editor.updateOptions({
+                readOnly: this.readOnlyLargeFile,
+                wordWrap: 'on',
+                wrappingIndent: 'same',
+            })
         } finally {
             this.settingValue = false
         }
@@ -2136,6 +2391,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         require('monaco-editor/min/vs/editor/editor.main.css')
 
         this.diffMode = true
+        this.markdownPreview = false
         this.status = 'Conflict detected'
 
         this.disposeEditor()
@@ -2151,6 +2407,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             automaticLayout: true,
             renderSideBySide: true,
             contextmenu: false,
+            wordWrap: 'on',
+            wrappingIndent: 'same',
         })
 
         this.diffEditor.setModel({
@@ -2158,9 +2416,17 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             modified: this.diffModifiedModel,
         })
 
-        this.diffEditor.getOriginalEditor().updateOptions({ readOnly: true })
+        this.diffEditor.getOriginalEditor().updateOptions({
+            readOnly: true,
+            wordWrap: 'on',
+            wrappingIndent: 'same',
+        })
         const modifiedEditor = this.diffEditor.getModifiedEditor()
-        modifiedEditor.updateOptions({ readOnly: false })
+        modifiedEditor.updateOptions({
+            readOnly: false,
+            wordWrap: 'on',
+            wrappingIndent: 'same',
+        })
 
         modifiedEditor.onDidChangeModelContent(() => {
             // Keep dirty state; conflict is still unresolved.
@@ -2187,6 +2453,27 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.initEditorIfNeeded()
         this.setEditorValue(text)
         this.ensureCodeEditorFocus(this.editor)
+    }
+
+    private refreshMarkdownPreview (text?: string): void {
+        if (this.languageId !== 'markdown') {
+            this.markdownPreviewHtml = ''
+            return
+        }
+
+        let source = text
+        if (source === undefined) {
+            source = this.editor?.getValue?.()
+        }
+        if (source === undefined && this.loadedBuffer) {
+            try {
+                source = this.decodeBuffer(this.loadedBuffer, this.encoding)
+            } catch {
+                source = ''
+            }
+        }
+
+        this.markdownPreviewHtml = renderMarkdownPreview(source ?? '')
     }
 
     private getDiffModifiedText (): string {
@@ -2240,6 +2527,39 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private applyTheme (): void {
         const monaco = getMonaco()
         monaco.editor.setTheme(this.darkMode ? 'vs-dark' : 'vs')
+    }
+
+    private relayoutEditors (): void {
+        setTimeout(() => {
+            try {
+                this.editor?.layout?.()
+            } catch {
+                // ignore
+            }
+            try {
+                this.diffEditor?.layout?.()
+            } catch {
+                // ignore
+            }
+        }, 0)
+    }
+
+    private openExternalLink (url: string): void {
+        try {
+            const { shell } = require('electron')
+            Promise.resolve(shell?.openExternal?.(url)).catch(() => {
+                this.notifications.error('Failed to open link')
+            })
+            return
+        } catch {
+            // electron shell not available
+        }
+
+        try {
+            window.open(url, '_blank', 'noopener')
+        } catch {
+            this.notifications.error('Failed to open link')
+        }
     }
 
     private readClipboardText (): string {
