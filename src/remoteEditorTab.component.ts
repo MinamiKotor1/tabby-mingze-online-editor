@@ -1196,19 +1196,30 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return found?.label ?? this.encoding.toUpperCase()
     }
 
-    openEncodingMenu (event?: MouseEvent): void {
-        if (this.openError || this.loading || this.saving || this.diffMode || (this.isBinary && !this.forceOpenBinary)) {
-            return
-        }
-
-        const menu: any[] = this.encodings.map(enc => ({
+    private buildReopenEncodingMenuItems (): any[] {
+        return this.encodings.map(enc => ({
             type: 'radio',
             label: enc.label,
             checked: this.encoding === enc.id,
             click: () => this.changeEncoding(enc.id),
         }))
+    }
 
-        this.platform.popupContextMenu(menu, event)
+    private buildSaveWithEncodingMenuItems (): any[] {
+        return this.encodings.map(enc => ({
+            type: 'radio',
+            label: enc.label,
+            checked: this.encoding === enc.id,
+            click: () => this.saveWithEncoding(enc.id),
+        }))
+    }
+
+    openEncodingMenu (event?: MouseEvent): void {
+        if (this.openError || this.loading || this.saving || this.diffMode || (this.isBinary && !this.forceOpenBinary)) {
+            return
+        }
+
+        this.platform.popupContextMenu(this.buildReopenEncodingMenuItems(), event)
     }
 
     async changeEncoding (encoding: string): Promise<void> {
@@ -1260,6 +1271,25 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } catch (e: any) {
             this.notifications.error(e?.message ?? 'Failed to decode using selected encoding')
         }
+    }
+
+    async saveWithEncoding (encoding: string): Promise<boolean> {
+        if (!encoding) {
+            return false
+        }
+
+        const prevEncoding = this.encoding
+        const prevEncodingAuto = this.encodingAuto
+
+        this.encoding = encoding
+        this.encodingAuto = false
+
+        const saved = await this.save()
+        if (!saved) {
+            this.encoding = prevEncoding
+            this.encodingAuto = prevEncodingAuto
+        }
+        return saved
     }
 
     closeTab (): void {
@@ -2370,6 +2400,37 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
+    private runEditorAction (editor: any, actionId: string): void {
+        if (!editor || !actionId) {
+            return
+        }
+
+        this.focusCodeEditor(editor)
+
+        try {
+            const action = editor.getAction?.(actionId)
+            if (action?.run) {
+                void Promise.resolve(action.run())
+                return
+            }
+        } catch {
+            // ignore and fallback to trigger
+        }
+
+        try {
+            editor.trigger('keyboard', actionId, null)
+        } catch {
+            // ignore
+        }
+    }
+
+    private reloadCurrentFileFromContextMenu (): void {
+        if (!this.path) {
+            return
+        }
+        this.reloadFile({ fullPath: this.path } as SFTPFileItem)
+    }
+
     private showEditorContextMenu (editor: any, event: MouseEvent): void {
         event.preventDefault()
         event.stopPropagation()
@@ -2380,7 +2441,64 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         const hasSelection = !!selection && !selection.isEmpty()
         const readOnly = this.isEditorReadOnly(editor)
 
+        const canReload = !this.openError && !this.loading && !this.saving && !this.diffMode
+        const canSaveBase =
+            canReload &&
+            !readOnly &&
+            !this.readOnlyLargeFile &&
+            !(this.isBinary && !this.forceOpenBinary)
+        const canSave = canSaveBase && this.dirty
+        const canReopenWithEncoding = canReload && !(this.isBinary && !this.forceOpenBinary)
+        const canSaveWithEncoding = canSaveBase
+        const canFormat = !readOnly && !this.openError && !this.loading && !this.saving && !(this.isBinary && !this.forceOpenBinary)
+        const canFind = !this.openError && !(this.isBinary && !this.forceOpenBinary)
+        const canReplace = canFind && !readOnly
+
         const menu: any[] = [
+            {
+                label: 'Save',
+                enabled: canSave,
+                click: () => this.save(),
+            },
+            {
+                label: 'Reload from Remote',
+                enabled: canReload,
+                click: () => this.reloadCurrentFileFromContextMenu(),
+            },
+            { type: 'separator' },
+            {
+                label: 'Format Document',
+                enabled: canFormat,
+                click: () => this.runEditorAction(editor, 'editor.action.formatDocument'),
+            },
+            {
+                label: 'Find / Replace',
+                enabled: canFind,
+                submenu: [
+                    {
+                        label: 'Find',
+                        enabled: canFind,
+                        click: () => this.runEditorAction(editor, 'actions.find'),
+                    },
+                    {
+                        label: 'Replace',
+                        enabled: canReplace,
+                        click: () => this.runEditorAction(editor, 'editor.action.startFindReplaceAction'),
+                    },
+                ],
+            },
+            { type: 'separator' },
+            {
+                label: 'Reopen with Encoding',
+                enabled: canReopenWithEncoding,
+                submenu: this.buildReopenEncodingMenuItems(),
+            },
+            {
+                label: 'Save with Encoding',
+                enabled: canSaveWithEncoding,
+                submenu: this.buildSaveWithEncodingMenuItems(),
+            },
+            { type: 'separator' },
             {
                 label: 'Undo',
                 enabled: !readOnly,
