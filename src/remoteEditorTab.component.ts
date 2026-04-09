@@ -2177,7 +2177,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     onPdfPreviewCopy (event: ClipboardEvent): void {
         const selection = window.getSelection?.()
-        const text = this.normalizeTranslationSelectionText(selection?.toString?.() ?? '')
+        const text = this.normalizeRawSelectionText(selection?.toString?.() ?? '')
         if (!text || !event.clipboardData) {
             return
         }
@@ -3730,7 +3730,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return null
         }
 
-        const text = this.normalizeTranslationSelectionText(model.getValueInRange(selection))
+        const text = this.normalizeTranslationSelectionText(model.getValueInRange(selection), 'monaco')
         if (!text) {
             return null
         }
@@ -3824,7 +3824,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
 
-        const text = this.normalizeTranslationSelectionText(window.getSelection?.()?.toString?.() ?? '')
+        const text = this.normalizeTranslationSelectionText(window.getSelection?.()?.toString?.() ?? '', source)
         if (!text) {
             this.clearTranslationSelection(source)
             return
@@ -3873,8 +3873,98 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return range
     }
 
-    private normalizeTranslationSelectionText (text: string): string {
-        return (text ?? '').replace(/\r\n/g, '\n').trim()
+    private normalizeTranslationSelectionText (
+        text: string,
+        source: TranslationSelectionSource,
+    ): string {
+        const normalized = this.normalizeRawSelectionText(text)
+        if (!normalized) {
+            return ''
+        }
+
+        if (source !== 'pdf') {
+            return normalized
+        }
+
+        return this.normalizePdfSelectionTextForAi(normalized)
+    }
+
+    private normalizeRawSelectionText (text: string): string {
+        return (text ?? '').replace(/\r\n?/g, '\n').trim()
+    }
+
+    private normalizePdfSelectionTextForAi (text: string): string {
+        const paragraphs = text
+            .split(/\n\s*\n+/)
+            .map(paragraph => this.mergePdfSelectionParagraph(paragraph))
+            .filter(Boolean)
+
+        return paragraphs.join('\n\n').trim()
+    }
+
+    private mergePdfSelectionParagraph (paragraph: string): string {
+        const lines = paragraph
+            .split('\n')
+            .map(line => line.replace(/[ \t]+/g, ' ').trim())
+            .filter(Boolean)
+
+        if (!lines.length) {
+            return ''
+        }
+
+        let merged = lines[0]
+        for (const line of lines.slice(1)) {
+            merged = this.joinPdfSelectionLines(merged, line)
+        }
+
+        return merged
+    }
+
+    private joinPdfSelectionLines (current: string, nextLine: string): string {
+        if (!current) {
+            return nextLine
+        }
+        if (!nextLine) {
+            return current
+        }
+
+        const previousChar = current.slice(-1)
+        const nextChar = nextLine[0]
+        if (
+            previousChar === '-' &&
+            /[A-Za-z]$/.test(current.slice(0, -1)) &&
+            /^[A-Za-z]/.test(nextLine)
+        ) {
+            return `${current.slice(0, -1)}${nextLine}`
+        }
+
+        return this.shouldInsertSpaceBetweenPdfLines(previousChar, nextChar)
+            ? `${current} ${nextLine}`
+            : `${current}${nextLine}`
+    }
+
+    private shouldInsertSpaceBetweenPdfLines (previousChar: string, nextChar: string): boolean {
+        if (!previousChar || !nextChar) {
+            return false
+        }
+        if (/\s/.test(previousChar) || /\s/.test(nextChar)) {
+            return false
+        }
+        if (this.isCjkSelectionChar(previousChar) || this.isCjkSelectionChar(nextChar)) {
+            return false
+        }
+        if (/[\u3001\u3002\uff0c\uff1b\uff1a\uff01\uff1f，。；：！？、)\\]\\}'"”’%]/.test(nextChar)) {
+            return false
+        }
+        if (/[(\\[{'"“‘]/.test(previousChar)) {
+            return false
+        }
+
+        return true
+    }
+
+    private isCjkSelectionChar (char: string): boolean {
+        return /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(char)
     }
 
     private setTranslationSelectionState (state: TranslationSelectionState): void {
