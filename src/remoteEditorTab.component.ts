@@ -2,6 +2,7 @@ import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
 import {
+    askAiAboutSelection,
     getDefaultTranslationConfig,
     translateSelection,
     TranslationConfig,
@@ -12,6 +13,7 @@ import {
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
 
 type TranslationSelectionSource = 'monaco' | 'markdown'
+type TranslationPopoverTab = 'translate' | 'ask_ai'
 
 type TranslationAnchor = {
     top: number
@@ -802,6 +804,12 @@ function luminance (rgb: RGB): number {
             gap: 0.35rem;
         }
 
+        .translation-popover-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
         .translation-popover-source {
             margin-bottom: 0.75rem;
             padding: 0.75rem;
@@ -826,6 +834,35 @@ function luminance (rgb: RGB): number {
 
         .translation-popover-error {
             color: var(--bs-danger, #dc3545);
+        }
+
+        .translation-ask-form {
+            display: grid;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .translation-ask-input {
+            width: 100%;
+            min-height: 88px;
+            padding: 0.65rem 0.75rem;
+            resize: vertical;
+            border-radius: 0.65rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--bs-body-bg, #fff);
+            color: inherit;
+            line-height: 1.5;
+        }
+
+        .translation-ask-input:focus {
+            outline: 0;
+            border-color: var(--bs-primary, #0d6efd);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        }
+
+        .translation-ask-footnote {
+            font-size: 12px;
+            color: var(--bs-secondary-color, rgba(0, 0, 0, 0.6));
         }
 
         .translation-settings-backdrop {
@@ -919,11 +956,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     translationConfigError = ''
 
     translationButtonVisible = false
-    translationButtonLabel = 'Translate'
+    translationButtonLabel = 'AI'
     translationButtonTop = 0
     translationButtonLeft = 0
 
     translationPopoverVisible = false
+    translationActiveTab: TranslationPopoverTab = 'translate'
     translationPopoverTop = 0
     translationPopoverLeft = 0
     translationPopoverWidth = 360
@@ -932,6 +970,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     translationError = ''
     translationLoading = false
     translationEndpointUsed = ''
+    askAiQuestion = ''
+    askAiResult = ''
+    askAiError = ''
+    askAiLoading = false
+    askAiEndpointUsed = ''
 
     // Sidebar file tree
     sidebarVisible = true
@@ -980,9 +1023,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private editorClipboardCleanup: (() => void)|null = null
     private translationSelectionState: TranslationSelectionState | null = null
     private translationRequestAbort: AbortController | null = null
+    private askAiRequestAbort: AbortController | null = null
     private translationSelectionTimer: number | null = null
     private translationUiCleanup: (() => void) | null = null
     private translationCache = new Map<string, string>()
+    private askAiCache = new Map<string, string>()
 
     constructor (
         injector: Injector,
@@ -1043,6 +1088,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.translationUiCleanup = null
         this.translationRequestAbort?.abort()
         this.translationRequestAbort = null
+        this.askAiRequestAbort?.abort()
+        this.askAiRequestAbort = null
         if (this.translationSelectionTimer !== null) {
             clearTimeout(this.translationSelectionTimer)
             this.translationSelectionTimer = null
@@ -1587,6 +1634,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             apiBaseUrl: (this.translationSettingsDraft.apiBaseUrl ?? '').trim(),
             apiKey: (this.translationSettingsDraft.apiKey ?? '').trim(),
             model: (this.translationSettingsDraft.model ?? '').trim(),
+            askModel: (this.translationSettingsDraft.askModel ?? '').trim(),
             targetLanguage: (this.translationSettingsDraft.targetLanguage ?? '').trim(),
             endpointMode: (this.translationSettingsDraft.endpointMode ?? 'auto') as TranslationEndpointMode,
             timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 30000,
@@ -1597,7 +1645,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
         if (!normalized.model) {
-            this.translationConfigError = 'Model is required'
+            this.translationConfigError = 'Translation model is required'
+            return
+        }
+        if (!normalized.askModel) {
+            this.translationConfigError = '提问模型必填'
             return
         }
         if (!normalized.targetLanguage) {
@@ -1614,29 +1666,68 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.storeTranslationSettings(normalized)
         this.translationConfigError = ''
         this.translationSettingsVisible = false
-        this.notifications.notice('Translation settings saved')
+        this.notifications.notice('AI settings saved')
         this.safeDetectChanges()
     }
 
-    copyTranslationResult (): void {
-        if (!this.translationResult) {
+    hasConfiguredAiConnection (): boolean {
+        return !!this.translationSettings.apiBaseUrl.trim() && !!this.translationSettings.apiKey.trim()
+    }
+
+    isTranslateTabActive (): boolean {
+        return this.translationActiveTab === 'translate'
+    }
+
+    isAskAiTabActive (): boolean {
+        return this.translationActiveTab === 'ask_ai'
+    }
+
+    setTranslationPopoverTab (tab: TranslationPopoverTab): void {
+        this.translationActiveTab = tab
+        this.safeDetectChanges()
+    }
+
+    getActivePopoverEndpointUsed (): string {
+        return this.translationActiveTab === 'translate'
+            ? this.translationEndpointUsed
+            : this.askAiEndpointUsed
+    }
+
+    copyActivePopoverResult (): void {
+        const text = this.translationActiveTab === 'translate'
+            ? this.translationResult
+            : this.askAiResult
+        if (!text) {
             return
         }
-        this.writeClipboardText(this.translationResult)
-        this.notifications.notice('Translation copied')
+
+        this.writeClipboardText(text)
+        this.notifications.notice(this.translationActiveTab === 'translate' ? 'Translation copied' : '回答已复制')
     }
 
     startTranslationFromSelection (): void {
         if (!this.translationSelectionState) {
             return
         }
-        if (!this.translationSettings.apiBaseUrl.trim() || !this.translationSettings.apiKey.trim()) {
+        this.translationActiveTab = 'translate'
+        if (!this.hasConfiguredAiConnection()) {
             this.openTranslationSettings()
             return
         }
 
         this.openTranslationPopover()
         void this.runTranslationForCurrentSelection()
+    }
+
+    startAskAiFromSelection (): void {
+        if (!this.translationSelectionState) {
+            return
+        }
+        this.translationActiveTab = 'ask_ai'
+        this.openTranslationPopover()
+        if (!this.hasConfiguredAiConnection()) {
+            this.openTranslationSettings()
+        }
     }
 
     retryTranslation (): void {
@@ -1646,16 +1737,57 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         void this.runTranslationForCurrentSelection()
     }
 
+    retryAskAi (): void {
+        if (!this.translationSelectionState) {
+            return
+        }
+        void this.runAskAiForCurrentSelection()
+    }
+
+    async submitAskAiQuestion (): Promise<void> {
+        if (!this.translationSelectionState) {
+            return
+        }
+        if (!this.askAiQuestion.trim()) {
+            this.askAiError = '请输入问题'
+            this.safeDetectChanges()
+            return
+        }
+        if (!this.hasConfiguredAiConnection()) {
+            this.openTranslationSettings()
+            return
+        }
+
+        this.translationActiveTab = 'ask_ai'
+        this.openTranslationPopover()
+        await this.runAskAiForCurrentSelection()
+    }
+
+    onAskAiQuestionKeyDown (event: KeyboardEvent): void {
+        if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key === 'Enter') {
+            event.preventDefault()
+            void this.submitAskAiQuestion()
+        }
+    }
+
     closeTranslationPopover (): void {
         this.translationPopoverVisible = false
         this.translationButtonVisible = false
+        this.translationActiveTab = 'translate'
         this.translationSelectedText = ''
         this.translationResult = ''
         this.translationEndpointUsed = ''
         this.translationError = ''
         this.translationLoading = false
+        this.askAiQuestion = ''
+        this.askAiResult = ''
+        this.askAiError = ''
+        this.askAiLoading = false
+        this.askAiEndpointUsed = ''
         this.translationRequestAbort?.abort()
         this.translationRequestAbort = null
+        this.askAiRequestAbort?.abort()
+        this.askAiRequestAbort = null
         this.translationSelectionState = null
         this.safeDetectChanges()
     }
@@ -1926,6 +2058,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 model: typeof parsed?.model === 'string' && parsed.model.trim()
                     ? parsed.model.trim()
                     : fallback.model,
+                askModel: typeof parsed?.askModel === 'string' && parsed.askModel.trim()
+                    ? parsed.askModel.trim()
+                    : fallback.askModel,
                 targetLanguage: typeof parsed?.targetLanguage === 'string' && parsed.targetLanguage.trim()
                     ? parsed.targetLanguage.trim()
                     : fallback.targetLanguage,
@@ -3036,17 +3171,24 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.translationSelectionState = state
         this.translationSelectedText = state.text
-        this.translationButtonLabel = 'Translate'
+        this.translationButtonLabel = 'AI'
         this.translationButtonTop = state.anchor.top
         this.translationButtonLeft = state.anchor.left
 
         if (!sameSelection) {
             this.translationRequestAbort?.abort()
             this.translationRequestAbort = null
+            this.askAiRequestAbort?.abort()
+            this.askAiRequestAbort = null
             this.translationLoading = false
             this.translationResult = ''
             this.translationError = ''
             this.translationEndpointUsed = ''
+            this.askAiQuestion = ''
+            this.askAiResult = ''
+            this.askAiError = ''
+            this.askAiLoading = false
+            this.askAiEndpointUsed = ''
             this.translationPopoverVisible = false
         }
 
@@ -3098,6 +3240,18 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             targetLanguage: config.targetLanguage,
             sourceType: state.sourceType,
             text: state.text,
+        })
+    }
+
+    private buildAskAiCacheKey (state: TranslationSelectionState, question: string): string {
+        const config = this.translationSettings
+        return JSON.stringify({
+            base: config.apiBaseUrl,
+            endpointMode: config.endpointMode,
+            model: config.askModel,
+            sourceType: state.sourceType,
+            text: state.text,
+            question,
         })
     }
 
@@ -3163,6 +3317,81 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } finally {
             this.translationLoading = false
             this.translationRequestAbort = null
+            this.safeDetectChanges()
+        }
+    }
+
+    private async runAskAiForCurrentSelection (): Promise<void> {
+        const state = this.translationSelectionState
+        const question = this.askAiQuestion.trim()
+        if (!state) {
+            return
+        }
+
+        this.openTranslationPopover()
+        this.askAiError = ''
+        this.askAiResult = ''
+
+        if (!question) {
+            this.askAiLoading = false
+            this.askAiError = '请输入问题'
+            this.safeDetectChanges()
+            return
+        }
+
+        if (state.text.length > TRANSLATION_MAX_SELECTION_LENGTH) {
+            this.askAiLoading = false
+            this.askAiError = `选中文本过长，无法提问（${state.text.length} 字符，最大 ${TRANSLATION_MAX_SELECTION_LENGTH}）`
+            this.safeDetectChanges()
+            return
+        }
+
+        const cacheKey = this.buildAskAiCacheKey(state, question)
+        const cached = this.askAiCache.get(cacheKey)
+        if (cached) {
+            this.askAiLoading = false
+            this.askAiResult = cached
+            this.askAiEndpointUsed = 'cache'
+            this.safeDetectChanges()
+            return
+        }
+
+        this.askAiRequestAbort?.abort()
+        this.askAiRequestAbort = new AbortController()
+        this.askAiLoading = true
+        this.askAiEndpointUsed = ''
+        this.safeDetectChanges()
+
+        try {
+            const result = await askAiAboutSelection(this.translationSettings, {
+                selection: state.text,
+                question,
+                sourceType: state.sourceType,
+                signal: this.askAiRequestAbort.signal,
+            })
+
+            if (this.translationSelectionState?.text !== state.text || this.askAiQuestion.trim() !== question) {
+                return
+            }
+
+            this.askAiResult = result.text
+            this.askAiEndpointUsed = result.endpointUsed
+            this.askAiCache.set(cacheKey, result.text)
+            this.askAiError = ''
+        } catch (e: any) {
+            if (this.askAiRequestAbort?.signal.aborted) {
+                return
+            }
+
+            const err = e instanceof TranslationError
+                ? e
+                : new TranslationError(e?.message ?? '提问请求失败')
+            this.askAiResult = ''
+            this.askAiEndpointUsed = ''
+            this.askAiError = err.message
+        } finally {
+            this.askAiLoading = false
+            this.askAiRequestAbort = null
             this.safeDetectChanges()
         }
     }
@@ -3519,7 +3748,19 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 },
             },
             {
-                label: 'Translation Settings',
+                label: '提问',
+                enabled: canTranslate,
+                click: () => {
+                    const state = this.getMonacoSelectionState(editor)
+                    if (!state) {
+                        return
+                    }
+                    this.setTranslationSelectionState(state)
+                    this.startAskAiFromSelection()
+                },
+            },
+            {
+                label: 'AI Settings',
                 click: () => this.openTranslationSettings(),
             },
             { type: 'separator' },

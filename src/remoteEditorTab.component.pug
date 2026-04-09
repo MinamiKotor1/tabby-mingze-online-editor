@@ -34,7 +34,7 @@
                     span {{getEncodingLabel()}}
                 button.btn.btn-outline-secondary.text-nowrap.translation-toolbar-btn(type='button', (click)='openTranslationSettings()')
                     i.fas.fa-language.me-1
-                    span Translate
+                    span AI
 
             .btn-group.btn-group-sm(*ngIf='showMarkdownToolbar()', role='group')
                 button.btn.text-nowrap(
@@ -126,10 +126,10 @@
                     (click)='$event.stopPropagation()'
                 )
                     .translation-popover-header
-                        strong.small Translation
+                        strong.small AI
                         .translation-popover-actions
-                            span.badge.bg-secondary.small(*ngIf='translationEndpointUsed') {{translationEndpointUsed}}
-                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='copyTranslationResult()', [disabled]='!translationResult')
+                            span.badge.bg-secondary.small(*ngIf='getActivePopoverEndpointUsed()') {{getActivePopoverEndpointUsed()}}
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='copyActivePopoverResult()', [disabled]='!(translationActiveTab === "translate" ? translationResult : askAiResult)')
                                 i.fas.fa-copy.me-1
                                 span Copy
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='openTranslationSettings()')
@@ -138,16 +138,56 @@
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationPopover()')
                                 i.fas.fa-xmark.fa-times
 
+                    .translation-popover-tabs
+                        button.btn.btn-sm.text-nowrap(
+                            type='button',
+                            [class.btn-primary]='isTranslateTabActive()',
+                            [class.btn-outline-secondary]='!isTranslateTabActive()',
+                            (click)='setTranslationPopoverTab("translate")'
+                        ) Translate
+                        button.btn.btn-sm.text-nowrap(
+                            type='button',
+                            [class.btn-primary]='isAskAiTabActive()',
+                            [class.btn-outline-secondary]='!isAskAiTabActive()',
+                            (click)='setTranslationPopoverTab("ask_ai")'
+                        ) 提问
+
                     .translation-popover-source(*ngIf='translationSelectedText') {{translationSelectedText}}
-                    .translation-popover-body.text-muted(*ngIf='translationLoading')
-                        i.fas.fa-spinner.fa-spin.me-2
-                        span Translating...
-                    .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
-                        p.mb-2 {{translationError}}
-                        button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
-                            i.fas.fa-rotate-right.me-1
-                            span Retry
-                    .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
+                    ng-container(*ngIf='isTranslateTabActive()')
+                        .translation-popover-body.text-muted(*ngIf='translationLoading')
+                            i.fas.fa-spinner.fa-spin.me-2
+                            span Translating...
+                        .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
+                            p.mb-2 {{translationError}}
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
+                                i.fas.fa-rotate-right.me-1
+                                span Retry
+                        .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
+                        .translation-popover-body.text-muted(*ngIf='!translationLoading && !translationError && !translationResult') Click Translate to load the translation result.
+
+                    ng-container(*ngIf='isAskAiTabActive()')
+                        .translation-ask-form
+                            textarea.translation-ask-input(
+                                [value]='askAiQuestion',
+                                (input)='askAiQuestion = $event.target.value',
+                                (keydown)='onAskAiQuestionKeyDown($event)',
+                                placeholder='围绕选中文本输入你的问题...'
+                            )
+                            .d-flex.align-items-center.justify-content-between.gap-2.flex-wrap
+                                span.translation-ask-footnote Ctrl/Cmd+Enter 发送
+                                button.btn.btn-primary.btn-sm(type='button', (click)='submitAskAiQuestion()', [disabled]='askAiLoading || !askAiQuestion.trim()')
+                                    i.fas.fa-paper-plane.me-1
+                                    span 提问
+                        .translation-popover-body.text-muted(*ngIf='askAiLoading')
+                            i.fas.fa-spinner.fa-spin.me-2
+                            span 提问中...
+                        .translation-popover-body.translation-popover-error(*ngIf='!askAiLoading && askAiError')
+                            p.mb-2 {{askAiError}}
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryAskAi()', *ngIf='hasTranslationSelection() && askAiQuestion.trim()')
+                                i.fas.fa-rotate-right.me-1
+                                span Retry
+                        .translation-popover-body(*ngIf='!askAiLoading && !askAiError && askAiResult') {{askAiResult}}
+                        .translation-popover-body.text-muted(*ngIf='!askAiLoading && !askAiError && !askAiResult') 输入问题后即可基于选中文本提问。
 
                 .markdown-preview-shell.w-100.h-100(
                     *ngIf='showMarkdownPreview()',
@@ -162,19 +202,22 @@
                 .translation-settings-backdrop(*ngIf='translationSettingsVisible', (mousedown)='closeTranslationSettings()')
                     .translation-settings-card.p-3((mousedown)='$event.stopPropagation()', (click)='$event.stopPropagation()')
                         .d-flex.align-items-center.justify-content-between.mb-3
-                            h6.mb-0 Translation Settings
+                            h6.mb-0 AI Settings
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()')
                                 i.fas.fa-xmark.fa-times
                         .translation-settings-grid
                             label.translation-settings-field
                                 span.small.fw-semibold API Base URL
-                                input(type='text', [value]='translationSettingsDraft.apiBaseUrl', (input)='translationSettingsDraft.apiBaseUrl = $event.target.value', placeholder='https://api.openai.com/v1')
+                                input(type='text', [value]='translationSettingsDraft.apiBaseUrl', (input)='translationSettingsDraft.apiBaseUrl = $event.target.value', placeholder='https://your-openai-compatible-api.example/v1')
                             label.translation-settings-field
                                 span.small.fw-semibold API Key
                                 input(type='password', [value]='translationSettingsDraft.apiKey', (input)='translationSettingsDraft.apiKey = $event.target.value', placeholder='sk-...')
                             label.translation-settings-field
-                                span.small.fw-semibold Model
+                                span.small.fw-semibold Translation Model
                                 input(type='text', [value]='translationSettingsDraft.model', (input)='translationSettingsDraft.model = $event.target.value', placeholder='gpt-5.4-nano')
+                            label.translation-settings-field
+                                span.small.fw-semibold 提问模型
+                                input(type='text', [value]='translationSettingsDraft.askModel', (input)='translationSettingsDraft.askModel = $event.target.value', placeholder='gpt-5.4-nano')
                             label.translation-settings-field
                                 span.small.fw-semibold Target Language
                                 input(type='text', [value]='translationSettingsDraft.targetLanguage', (input)='translationSettingsDraft.targetLanguage = $event.target.value', placeholder='Simplified Chinese')

@@ -4,6 +4,7 @@ export interface TranslationConfig {
     apiBaseUrl: string
     apiKey: string
     model: string
+    askModel: string
     targetLanguage: string
     endpointMode: TranslationEndpointMode
     timeoutMs: number
@@ -19,6 +20,15 @@ export interface TranslationResult {
     text: string
     endpointUsed: Exclude<TranslationEndpointMode, 'auto'>
 }
+
+export interface AskAiRequest {
+    selection: string
+    question: string
+    sourceType?: string
+    signal?: AbortSignal
+}
+
+export interface AskAiResult extends TranslationResult {}
 
 export class TranslationError extends Error {
     status?: number
@@ -67,6 +77,30 @@ function buildSystemPrompt (targetLanguage: string, sourceType?: string): string
         'Preserve original line breaks and structure whenever reasonable.',
         `Source type: ${safeSourceType}.`,
     ].join(' ')
+}
+
+function buildAskAiSystemPrompt (sourceType?: string): string {
+    const safeSourceType = (sourceType ?? 'text').trim()
+
+    return [
+        'Answer the user\'s question about the selected content.',
+        'Use the selected content as the primary context.',
+        'Be accurate, direct, and concise.',
+        'Preserve code, commands, file paths, URLs, identifiers, variable names, option flags, and configuration keys exactly as written.',
+        'If the selection does not contain enough context to answer reliably, say so clearly.',
+        'Answer in the same language as the user\'s question whenever reasonable.',
+        `Source type: ${safeSourceType}.`,
+    ].join(' ')
+}
+
+function buildAskAiUserPrompt (selection: string, question: string): string {
+    return [
+        'Selected content:',
+        selection,
+        '',
+        'Question:',
+        question,
+    ].join('\n')
 }
 
 function extractTextFromResponses (data: any): string {
@@ -176,27 +210,32 @@ async function requestJson (url: string, body: any, apiKey: string, signal?: Abo
     return data
 }
 
-async function translateViaResponses (
+type TextGenerationRequest = {
+    model: string
+    systemPrompt: string
+    userText: string
+}
+
+async function requestTextViaResponses (
     config: TranslationConfig,
-    req: TranslationRequest,
+    req: TextGenerationRequest,
     signal?: AbortSignal,
 ): Promise<TranslationResult> {
-    const systemPrompt = buildSystemPrompt(config.targetLanguage, req.sourceType)
     const data = await requestJson(
         buildEndpointUrl(config.apiBaseUrl, '/responses'),
         {
-            model: config.model,
+            model: req.model,
             input: [
                 {
                     role: 'system',
                     content: [
-                        { type: 'input_text', text: systemPrompt },
+                        { type: 'input_text', text: req.systemPrompt },
                     ],
                 },
                 {
                     role: 'user',
                     content: [
-                        { type: 'input_text', text: req.text },
+                        { type: 'input_text', text: req.userText },
                     ],
                 },
             ],
@@ -221,24 +260,23 @@ async function translateViaResponses (
     }
 }
 
-async function translateViaChatCompletions (
+async function requestTextViaChatCompletions (
     config: TranslationConfig,
-    req: TranslationRequest,
+    req: TextGenerationRequest,
     signal?: AbortSignal,
 ): Promise<TranslationResult> {
-    const systemPrompt = buildSystemPrompt(config.targetLanguage, req.sourceType)
     const data = await requestJson(
         buildEndpointUrl(config.apiBaseUrl, '/chat/completions'),
         {
-            model: config.model,
+            model: req.model,
             messages: [
                 {
                     role: 'developer',
-                    content: systemPrompt,
+                    content: req.systemPrompt,
                 },
                 {
                     role: 'user',
-                    content: req.text,
+                    content: req.userText,
                 },
             ],
         },
@@ -274,11 +312,79 @@ function shouldFallbackToChatCompletions (error: any): boolean {
     return status === 400 || status === 404 || status === 405 || status === 415 || status === 422
 }
 
+type RunTextGenerationOptions = {
+    model: string
+    systemPrompt: string
+    userText: string
+    signal?: AbortSignal
+    requestName: string
+}
+
+async function runTextGeneration (
+    config: TranslationConfig,
+    opts: RunTextGenerationOptions,
+): Promise<TranslationResult> {
+    if (!(config.apiBaseUrl ?? '').trim()) {
+        throw new TranslationError('Translation API Base URL is not configured')
+    }
+    if (!(config.apiKey ?? '').trim()) {
+        throw new TranslationError('Translation API key is not configured')
+    }
+    if (!(opts.model ?? '').trim()) {
+        throw new TranslationError(`${opts.requestName} model is not configured`)
+    }
+    if (!(opts.userText ?? '').trim()) {
+        throw new TranslationError(`No input was provided for ${opts.requestName.toLowerCase()}`)
+    }
+
+    const timeoutController = new AbortController()
+    const timeoutMs = Number.isFinite(config.timeoutMs) && config.timeoutMs > 0
+        ? Math.round(config.timeoutMs)
+        : DEFAULT_TIMEOUT_MS
+    const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs)
+    const signal = combineAbortSignals([opts.signal, timeoutController.signal])
+    const request: TextGenerationRequest = {
+        model: opts.model,
+        systemPrompt: opts.systemPrompt,
+        userText: opts.userText,
+    }
+
+    try {
+        if (config.endpointMode === 'responses') {
+            return await requestTextViaResponses(config, request, signal)
+        }
+        if (config.endpointMode === 'chat_completions') {
+            return await requestTextViaChatCompletions(config, request, signal)
+        }
+
+        try {
+            return await requestTextViaResponses(config, request, signal)
+        } catch (e: any) {
+            if (!shouldFallbackToChatCompletions(e)) {
+                throw e
+            }
+        }
+
+        return await requestTextViaChatCompletions(config, request, signal)
+    } catch (e: any) {
+        if (timeoutController.signal.aborted && !(opts.signal?.aborted)) {
+            throw new TranslationError(`${opts.requestName} timed out after ${timeoutMs} ms`)
+        }
+        if (e instanceof TranslationError) {
+            throw e
+        }
+        throw new TranslationError(e?.message ?? `${opts.requestName} failed`)
+    } finally {
+        clearTimeout(timeoutHandle)
+    }
+}
+
 export function getDefaultTranslationConfig (): TranslationConfig {
     return {
         apiBaseUrl: '',
         apiKey: '',
         model: 'gpt-5.4-nano',
+        askModel: 'gpt-5.4-nano',
         targetLanguage: 'Simplified Chinese',
         endpointMode: 'auto',
         timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -289,49 +395,35 @@ export async function translateSelection (
     config: TranslationConfig,
     req: TranslationRequest,
 ): Promise<TranslationResult> {
-    if (!(config.apiBaseUrl ?? '').trim()) {
-        throw new TranslationError('Translation API Base URL is not configured')
-    }
-    if (!(config.apiKey ?? '').trim()) {
-        throw new TranslationError('Translation API key is not configured')
-    }
     if (!(req.text ?? '').trim()) {
         throw new TranslationError('No text selected for translation')
     }
 
-    const timeoutController = new AbortController()
-    const timeoutMs = Number.isFinite(config.timeoutMs) && config.timeoutMs > 0
-        ? Math.round(config.timeoutMs)
-        : DEFAULT_TIMEOUT_MS
-    const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs)
-    const signal = combineAbortSignals([req.signal, timeoutController.signal])
+    return await runTextGeneration(config, {
+        model: config.model,
+        systemPrompt: buildSystemPrompt(config.targetLanguage, req.sourceType),
+        userText: req.text,
+        signal: req.signal,
+        requestName: 'Translation request',
+    })
+}
 
-    try {
-        if (config.endpointMode === 'responses') {
-            return await translateViaResponses(config, req, signal)
-        }
-        if (config.endpointMode === 'chat_completions') {
-            return await translateViaChatCompletions(config, req, signal)
-        }
-
-        try {
-            return await translateViaResponses(config, req, signal)
-        } catch (e: any) {
-            if (!shouldFallbackToChatCompletions(e)) {
-                throw e
-            }
-        }
-
-        return await translateViaChatCompletions(config, req, signal)
-    } catch (e: any) {
-        if (timeoutController.signal.aborted && !(req.signal?.aborted)) {
-            throw new TranslationError(`Translation request timed out after ${timeoutMs} ms`)
-        }
-        if (e instanceof TranslationError) {
-            throw e
-        }
-        throw new TranslationError(e?.message ?? 'Translation request failed')
-    } finally {
-        clearTimeout(timeoutHandle)
+export async function askAiAboutSelection (
+    config: TranslationConfig,
+    req: AskAiRequest,
+): Promise<AskAiResult> {
+    if (!(req.selection ?? '').trim()) {
+        throw new TranslationError('没有可用于提问的选中文本')
     }
+    if (!(req.question ?? '').trim()) {
+        throw new TranslationError('请输入问题')
+    }
+
+    return await runTextGeneration(config, {
+        model: config.askModel,
+        systemPrompt: buildAskAiSystemPrompt(req.sourceType),
+        userText: buildAskAiUserPrompt(req.selection, req.question),
+        signal: req.signal,
+        requestName: '提问请求',
+    })
 }
