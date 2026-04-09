@@ -32,6 +32,9 @@
                 button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='openEncodingMenu($event)', [disabled]='openError || loading || saving || diffMode || (isBinary && !forceOpenBinary)')
                     i.fas.fa-language.me-1
                     span {{getEncodingLabel()}}
+                button.btn.btn-outline-secondary.text-nowrap.translation-toolbar-btn(type='button', (click)='openTranslationSettings()')
+                    i.fas.fa-language.me-1
+                    span Translate
 
             .btn-group.btn-group-sm(*ngIf='showMarkdownToolbar()', role='group')
                 button.btn.text-nowrap(
@@ -89,7 +92,7 @@
                 .sidebar-resizer((mousedown)='startResize($event)')
 
             //- Editor area
-            .flex-grow-1.min-w-0.min-vh-0.min-h-0.position-relative
+            .flex-grow-1.min-w-0.min-vh-0.min-h-0.position-relative(#contentArea)
                 .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='openError')
                     .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
                         i.fas.fa-triangle-exclamation.fa-3x.mb-3.text-warning
@@ -104,10 +107,92 @@
                             button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
                             button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
-                .markdown-preview-shell.w-100.h-100(*ngIf='showMarkdownPreview()', (click)='onMarkdownPreviewClick($event)')
+                button.btn.btn-primary.btn-sm.translation-fab(
+                    *ngIf='translationButtonVisible',
+                    type='button',
+                    [style.top.px]='translationButtonTop',
+                    [style.left.px]='translationButtonLeft',
+                    (click)='startTranslationFromSelection(); $event.stopPropagation()'
+                )
+                    i.fas.fa-language.me-1
+                    span {{translationButtonLabel}}
+
+                .translation-popover(
+                    *ngIf='translationPopoverVisible',
+                    [style.top.px]='translationPopoverTop',
+                    [style.left.px]='translationPopoverLeft',
+                    [style.max-width.px]='translationPopoverWidth',
+                    (mousedown)='$event.stopPropagation()',
+                    (click)='$event.stopPropagation()'
+                )
+                    .translation-popover-header
+                        strong.small Translation
+                        .translation-popover-actions
+                            span.badge.bg-secondary.small(*ngIf='translationEndpointUsed') {{translationEndpointUsed}}
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='copyTranslationResult()', [disabled]='!translationResult')
+                                i.fas.fa-copy.me-1
+                                span Copy
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='openTranslationSettings()')
+                                i.fas.fa-gear.me-1
+                                span Settings
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationPopover()')
+                                i.fas.fa-xmark.fa-times
+
+                    .translation-popover-source(*ngIf='translationSelectedText') {{translationSelectedText}}
+                    .translation-popover-body.text-muted(*ngIf='translationLoading')
+                        i.fas.fa-spinner.fa-spin.me-2
+                        span Translating...
+                    .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
+                        p.mb-2 {{translationError}}
+                        button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
+                            i.fas.fa-rotate-right.me-1
+                            span Retry
+                    .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
+
+                .markdown-preview-shell.w-100.h-100(
+                    *ngIf='showMarkdownPreview()',
+                    (click)='onMarkdownPreviewClick($event)',
+                    (mouseup)='onMarkdownPreviewMouseUp()',
+                    (keyup)='onMarkdownPreviewKeyUp()'
+                )
                     .markdown-preview([innerHTML]='markdownPreviewHtml')
 
                 .w-100.h-100(#editorHost, [hidden]='shouldHideEditorHost()')
+
+                .translation-settings-backdrop(*ngIf='translationSettingsVisible', (mousedown)='closeTranslationSettings()')
+                    .translation-settings-card.p-3((mousedown)='$event.stopPropagation()', (click)='$event.stopPropagation()')
+                        .d-flex.align-items-center.justify-content-between.mb-3
+                            h6.mb-0 Translation Settings
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()')
+                                i.fas.fa-xmark.fa-times
+                        .translation-settings-grid
+                            label.translation-settings-field
+                                span.small.fw-semibold API Base URL
+                                input(type='text', [value]='translationSettingsDraft.apiBaseUrl', (input)='translationSettingsDraft.apiBaseUrl = $event.target.value', placeholder='https://api.openai.com/v1')
+                            label.translation-settings-field
+                                span.small.fw-semibold API Key
+                                input(type='password', [value]='translationSettingsDraft.apiKey', (input)='translationSettingsDraft.apiKey = $event.target.value', placeholder='sk-...')
+                            label.translation-settings-field
+                                span.small.fw-semibold Model
+                                input(type='text', [value]='translationSettingsDraft.model', (input)='translationSettingsDraft.model = $event.target.value', placeholder='gpt-5.4-nano')
+                            label.translation-settings-field
+                                span.small.fw-semibold Target Language
+                                input(type='text', [value]='translationSettingsDraft.targetLanguage', (input)='translationSettingsDraft.targetLanguage = $event.target.value', placeholder='Simplified Chinese')
+                            label.translation-settings-field
+                                span.small.fw-semibold Endpoint Mode
+                                select([value]='translationSettingsDraft.endpointMode', (change)='translationSettingsDraft.endpointMode = $event.target.value')
+                                    option(value='auto') Auto
+                                    option(value='responses') Responses API
+                                    option(value='chat_completions') Chat Completions
+                            label.translation-settings-field
+                                span.small.fw-semibold Timeout (ms)
+                                input(type='number', min='1000', step='1000', [value]='translationSettingsDraft.timeoutMs', (input)='translationSettingsDraft.timeoutMs = $event.target.value')
+                        p.text-danger.small.mt-3.mb-0(*ngIf='translationConfigError') {{translationConfigError}}
+                        p.translation-settings-footnote.mt-3.mb-0
+                            | `Auto` will try `/v1/responses` first and fall back to `/v1/chat/completions` when the server clearly does not support Responses.
+                        .d-flex.justify-content-end.gap-2.mt-3
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()') Cancel
+                            button.btn.btn-primary.btn-sm(type='button', (click)='saveTranslationSettings()') Save
 
         //- File tree item template (recursive)
         ng-template(#fileTreeItem, let-item='item', let-depth='depth')

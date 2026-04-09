@@ -1,8 +1,29 @@
 import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@angular/core'
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
+import {
+    getDefaultTranslationConfig,
+    translateSelection,
+    TranslationConfig,
+    TranslationEndpointMode,
+    TranslationError,
+} from './translationClient'
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
+
+type TranslationSelectionSource = 'monaco' | 'markdown'
+
+type TranslationAnchor = {
+    top: number
+    left: number
+}
+
+type TranslationSelectionState = {
+    text: string
+    source: TranslationSelectionSource
+    sourceType: string
+    anchor: TranslationAnchor
+}
 
 export interface SFTPFileItem {
     name: string
@@ -326,6 +347,7 @@ const LARGE_FILE_REJECT_SIZE = 20 * 1024 * 1024   // 20MB
 
 const SIDEBAR_MIN_WIDTH = 150
 const SIDEBAR_MAX_WIDTH = 400
+const TRANSLATION_MAX_SELECTION_LENGTH = 4000
 
 function formatBytes (size: number): string {
     if (!Number.isFinite(size) || size < 0) {
@@ -606,6 +628,9 @@ function luminance (rgb: RGB): number {
             padding: 1.5rem;
             background: var(--theme-bg, var(--bs-body-bg));
             color: var(--bs-body-color, inherit);
+            user-select: text;
+            -webkit-user-select: text;
+            cursor: text;
         }
 
         .markdown-preview {
@@ -615,6 +640,14 @@ function luminance (rgb: RGB): number {
             font-size: 14px;
             color: inherit;
             overflow-wrap: anywhere;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .markdown-preview,
+        .markdown-preview * {
+            user-select: text;
+            -webkit-user-select: text;
         }
 
         .markdown-preview > :first-child {
@@ -729,6 +762,120 @@ function luminance (rgb: RGB): number {
             background: rgba(255, 193, 7, 0.12);
         }
 
+        .translation-toolbar-btn {
+            min-width: 0;
+        }
+
+        .translation-fab {
+            position: absolute;
+            z-index: 30;
+            transform: translate(-50%, calc(-100% - 10px));
+            white-space: nowrap;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.18);
+        }
+
+        .translation-popover {
+            position: absolute;
+            z-index: 31;
+            width: min(420px, calc(100% - 1.5rem));
+            max-height: min(60vh, 520px);
+            overflow: auto;
+            padding: 0.9rem;
+            border-radius: 0.85rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--theme-bg, var(--bs-body-bg, #fff));
+            color: var(--bs-body-color, inherit);
+            box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.2);
+        }
+
+        .translation-popover-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .translation-popover-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .translation-popover-source {
+            margin-bottom: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 0.65rem;
+            background: var(--theme-bg-less, rgba(0, 0, 0, 0.03));
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.06)));
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 140px;
+            overflow: auto;
+        }
+
+        .translation-popover-body {
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.6;
+            font-size: 13px;
+        }
+
+        .translation-popover-error {
+            color: var(--bs-danger, #dc3545);
+        }
+
+        .translation-settings-backdrop {
+            position: absolute;
+            inset: 0;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.28);
+        }
+
+        .translation-settings-card {
+            width: min(520px, 100%);
+            max-height: min(80vh, 720px);
+            overflow: auto;
+            border-radius: 1rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--theme-bg, var(--bs-body-bg, #fff));
+            color: var(--bs-body-color, inherit);
+            box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.26);
+        }
+
+        .translation-settings-grid {
+            display: grid;
+            gap: 0.85rem;
+        }
+
+        .translation-settings-field {
+            display: grid;
+            gap: 0.35rem;
+        }
+
+        .translation-settings-field input,
+        .translation-settings-field select {
+            width: 100%;
+            min-width: 0;
+            padding: 0.55rem 0.7rem;
+            border-radius: 0.55rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--bs-body-bg, #fff);
+            color: inherit;
+        }
+
+        .translation-settings-footnote {
+            font-size: 12px;
+            color: var(--bs-secondary-color, rgba(0, 0, 0, 0.6));
+        }
+
         :host ::ng-deep .monaco-editor,
         :host ::ng-deep .monaco-diff-editor {
             border-radius: 0 0 0.25rem 0.25rem;
@@ -766,6 +913,26 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     markdownPreview = false
     markdownPreviewHtml = ''
 
+    translationSettings = getDefaultTranslationConfig()
+    translationSettingsDraft = getDefaultTranslationConfig()
+    translationSettingsVisible = false
+    translationConfigError = ''
+
+    translationButtonVisible = false
+    translationButtonLabel = 'Translate'
+    translationButtonTop = 0
+    translationButtonLeft = 0
+
+    translationPopoverVisible = false
+    translationPopoverTop = 0
+    translationPopoverLeft = 0
+    translationPopoverWidth = 360
+    translationSelectedText = ''
+    translationResult = ''
+    translationError = ''
+    translationLoading = false
+    translationEndpointUsed = ''
+
     // Sidebar file tree
     sidebarVisible = true
     sidebarWidth = 200 // px
@@ -781,6 +948,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     editingNewType: 'file' | 'folder' | null = null
 
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
+    @ViewChild('contentArea', { static: true }) contentArea?: ElementRef<HTMLElement>
 
     private sftp?: SFTPSession
     private editor?: import('monaco-editor').editor.IStandaloneCodeEditor
@@ -810,6 +978,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     // Avoid clashing with Tabby BaseTabComponent internals (some versions use `destroyed`/`destroyed$`).
     private componentDestroyed = false
     private editorClipboardCleanup: (() => void)|null = null
+    private translationSelectionState: TranslationSelectionState | null = null
+    private translationRequestAbort: AbortController | null = null
+    private translationSelectionTimer: number | null = null
+    private translationUiCleanup: (() => void) | null = null
+    private translationCache = new Map<string, string>()
 
     constructor (
         injector: Injector,
@@ -827,6 +1000,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     async ngOnInit (): Promise<void> {
         this.setTitle(this.name ?? this.path ?? 'Editor')
         this.languageId = detectLanguageId(this.name ?? this.path ?? '')
+        this.translationSettings = this.getStoredTranslationSettings()
+        this.translationSettingsDraft = { ...this.translationSettings }
 
         this.followTabbyTheme = this.getStoredFollowTheme()
         if (this.followTabbyTheme) {
@@ -840,6 +1015,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.sidebarWidth = this.clampSidebarWidth(this.getStoredSidebarWidth())
         this.currentDir = this.dirname(this.path)
         void this.loadDirectoryRoot(this.currentDir)
+        this.setupTranslationUiListeners()
 
         await this.loadCurrentFile({ onCancel: 'close' })
     }
@@ -863,6 +1039,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.themeSubscription?.unsubscribe?.()
         this.editorClipboardCleanup?.()
         this.editorClipboardCleanup = null
+        this.translationUiCleanup?.()
+        this.translationUiCleanup = null
+        this.translationRequestAbort?.abort()
+        this.translationRequestAbort = null
+        if (this.translationSelectionTimer !== null) {
+            clearTimeout(this.translationSelectionTimer)
+            this.translationSelectionTimer = null
+        }
         this.disposeDiffEditor()
         this.disposeEditor()
         this.sftp = undefined
@@ -1255,6 +1439,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
 
             if (item.fullPath === this.path) {
+                this.closeTranslationPopover()
                 this.openError = 'File has been deleted'
                 this.status = 'Deleted'
                 this.dirty = false
@@ -1297,6 +1482,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
+        this.closeTranslationPopover()
         this.loading = true
         this.status = 'Reloading...'
         this.safeDetectChanges()
@@ -1382,6 +1568,98 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return found?.label ?? this.encoding.toUpperCase()
     }
 
+    openTranslationSettings (): void {
+        this.translationSettingsDraft = { ...this.translationSettings }
+        this.translationConfigError = ''
+        this.translationSettingsVisible = true
+        this.safeDetectChanges()
+    }
+
+    closeTranslationSettings (): void {
+        this.translationSettingsVisible = false
+        this.translationConfigError = ''
+        this.safeDetectChanges()
+    }
+
+    saveTranslationSettings (): void {
+        const timeoutValue = Number.parseInt(`${this.translationSettingsDraft.timeoutMs ?? ''}`, 10)
+        const normalized: TranslationConfig = {
+            apiBaseUrl: (this.translationSettingsDraft.apiBaseUrl ?? '').trim(),
+            apiKey: (this.translationSettingsDraft.apiKey ?? '').trim(),
+            model: (this.translationSettingsDraft.model ?? '').trim(),
+            targetLanguage: (this.translationSettingsDraft.targetLanguage ?? '').trim(),
+            endpointMode: (this.translationSettingsDraft.endpointMode ?? 'auto') as TranslationEndpointMode,
+            timeoutMs: Number.isFinite(timeoutValue) && timeoutValue > 0 ? timeoutValue : 30000,
+        }
+
+        if (!normalized.apiBaseUrl) {
+            this.translationConfigError = 'API Base URL is required'
+            return
+        }
+        if (!normalized.model) {
+            this.translationConfigError = 'Model is required'
+            return
+        }
+        if (!normalized.targetLanguage) {
+            this.translationConfigError = 'Target language is required'
+            return
+        }
+        if (!normalized.apiKey) {
+            this.translationConfigError = 'API key is required'
+            return
+        }
+
+        this.translationSettings = normalized
+        this.translationSettingsDraft = { ...normalized }
+        this.storeTranslationSettings(normalized)
+        this.translationConfigError = ''
+        this.translationSettingsVisible = false
+        this.notifications.notice('Translation settings saved')
+        this.safeDetectChanges()
+    }
+
+    copyTranslationResult (): void {
+        if (!this.translationResult) {
+            return
+        }
+        this.writeClipboardText(this.translationResult)
+        this.notifications.notice('Translation copied')
+    }
+
+    startTranslationFromSelection (): void {
+        if (!this.translationSelectionState) {
+            return
+        }
+        if (!this.translationSettings.apiBaseUrl.trim() || !this.translationSettings.apiKey.trim()) {
+            this.openTranslationSettings()
+            return
+        }
+
+        this.openTranslationPopover()
+        void this.runTranslationForCurrentSelection()
+    }
+
+    retryTranslation (): void {
+        if (!this.translationSelectionState) {
+            return
+        }
+        void this.runTranslationForCurrentSelection()
+    }
+
+    closeTranslationPopover (): void {
+        this.translationPopoverVisible = false
+        this.translationButtonVisible = false
+        this.translationSelectedText = ''
+        this.translationResult = ''
+        this.translationEndpointUsed = ''
+        this.translationError = ''
+        this.translationLoading = false
+        this.translationRequestAbort?.abort()
+        this.translationRequestAbort = null
+        this.translationSelectionState = null
+        this.safeDetectChanges()
+    }
+
     showMarkdownToolbar (): boolean {
         return this.languageId === 'markdown' && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
     }
@@ -1392,6 +1670,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     shouldHideEditorHost (): boolean {
         return !!this.openError || (this.isBinary && !this.forceOpenBinary) || this.showMarkdownPreview()
+    }
+
+    hasTranslationSelection (): boolean {
+        return !!this.translationSelectionState?.text
     }
 
     setMarkdownPreview (preview: boolean): void {
@@ -1411,12 +1693,21 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.safeDetectChanges()
         this.relayoutEditors()
 
-        if (!preview) {
+        if (preview) {
+            this.clearTranslationSelection('monaco')
+            this.scheduleMarkdownSelectionUpdate()
+        } else {
+            this.clearTranslationSelection('markdown')
             this.ensureCodeEditorFocus(this.editor)
         }
     }
 
     onMarkdownPreviewClick (event: MouseEvent): void {
+        const selectedText = window.getSelection?.()?.toString?.().trim() ?? ''
+        if (selectedText) {
+            return
+        }
+
         const target = event.target as Element | null
         const anchor = target?.closest?.('a') as HTMLAnchorElement | null
         const href = (anchor?.getAttribute('href') ?? '').trim()
@@ -1441,6 +1732,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         this.notifications.notice('Relative Markdown links are not supported yet')
+    }
+
+    onMarkdownPreviewMouseUp (): void {
+        this.scheduleMarkdownSelectionUpdate()
+    }
+
+    onMarkdownPreviewKeyUp (): void {
+        this.scheduleMarkdownSelectionUpdate()
     }
 
     private buildReopenEncodingMenuItems (): any[] {
@@ -1548,6 +1847,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
 
+        this.closeTranslationPopover()
         this.forceOpenBinary = true
         if (!this.loadedBuffer) {
             this.loadedBuffer = await this.readRemoteFileBuffer()
@@ -1598,6 +1898,48 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private storeSidebarWidth (width: number): void {
         try {
             localStorage.setItem('tabby-mingze-online-editor.sidebarWidth', `${this.clampSidebarWidth(width)}`)
+        } catch {
+            // ignore
+        }
+    }
+
+    private getStoredTranslationSettings (): TranslationConfig {
+        const fallback = getDefaultTranslationConfig()
+
+        try {
+            const raw = localStorage.getItem('tabby-mingze-online-editor.translationSettings')
+            if (!raw) {
+                return fallback
+            }
+
+            const parsed = JSON.parse(raw)
+            const endpointMode = ['auto', 'responses', 'chat_completions'].includes(parsed?.endpointMode)
+                ? parsed.endpointMode as TranslationEndpointMode
+                : fallback.endpointMode
+            const timeoutMs = Number.parseInt(`${parsed?.timeoutMs ?? ''}`, 10)
+
+            return {
+                apiBaseUrl: typeof parsed?.apiBaseUrl === 'string' && parsed.apiBaseUrl.trim()
+                    ? parsed.apiBaseUrl.trim()
+                    : fallback.apiBaseUrl,
+                apiKey: typeof parsed?.apiKey === 'string' ? parsed.apiKey : fallback.apiKey,
+                model: typeof parsed?.model === 'string' && parsed.model.trim()
+                    ? parsed.model.trim()
+                    : fallback.model,
+                targetLanguage: typeof parsed?.targetLanguage === 'string' && parsed.targetLanguage.trim()
+                    ? parsed.targetLanguage.trim()
+                    : fallback.targetLanguage,
+                endpointMode,
+                timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : fallback.timeoutMs,
+            }
+        } catch {
+            return fallback
+        }
+    }
+
+    private storeTranslationSettings (config: TranslationConfig): void {
+        try {
+            localStorage.setItem('tabby-mingze-online-editor.translationSettings', JSON.stringify(config))
         } catch {
             // ignore
         }
@@ -2031,6 +2373,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.status = 'Loading...'
         try {
             this.loading = true
+            this.closeTranslationPopover()
             this.openError = null
             this.isBinary = false
             this.forceOpenBinary = false
@@ -2353,6 +2696,22 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.status = 'Modified'
         })
 
+        this.editor.onDidChangeCursorSelection(() => {
+            this.updateMonacoSelectionOverlay(this.editor)
+        })
+
+        this.editor.onDidScrollChange(() => {
+            if (this.translationSelectionState?.source === 'monaco') {
+                this.updateMonacoSelectionOverlay(this.editor)
+            }
+        })
+
+        this.editor.onDidLayoutChange(() => {
+            if (this.translationSelectionState?.source === 'monaco') {
+                this.updateMonacoSelectionOverlay(this.editor)
+            }
+        })
+
         this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             this.save()
         })
@@ -2385,6 +2744,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             throw new Error('Editor host element not ready')
         }
 
+        this.closeTranslationPopover()
         const monaco = getMonaco()
         ensureMonacoLanguagesLoaded()
         // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -2446,6 +2806,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             return
         }
 
+        this.closeTranslationPopover()
         this.disposeDiffEditor()
         this.editorHost.nativeElement.innerHTML = ''
         this.diffMode = false
@@ -2474,6 +2835,336 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         this.markdownPreviewHtml = renderMarkdownPreview(source ?? '')
+    }
+
+    private setupTranslationUiListeners (): void {
+        if (this.translationUiCleanup) {
+            return
+        }
+
+        const onDocumentMouseDown = (event: MouseEvent): void => {
+            const target = event.target as HTMLElement | null
+            if (target?.closest('.translation-fab, .translation-popover, .translation-settings-card')) {
+                return
+            }
+            if (this.translationSettingsVisible) {
+                return
+            }
+            this.closeTranslationPopover()
+        }
+
+        const onDocumentKeyDown = (event: KeyboardEvent): void => {
+            if (event.key !== 'Escape') {
+                return
+            }
+            if (this.translationSettingsVisible) {
+                this.closeTranslationSettings()
+                return
+            }
+            this.closeTranslationPopover()
+        }
+
+        const onWindowResize = (): void => {
+            if (!this.translationSelectionState) {
+                return
+            }
+            if (this.translationSelectionState.source === 'monaco') {
+                this.updateMonacoSelectionOverlay()
+            } else {
+                this.scheduleMarkdownSelectionUpdate()
+            }
+        }
+
+        document.addEventListener('mousedown', onDocumentMouseDown, true)
+        document.addEventListener('keydown', onDocumentKeyDown, true)
+        window.addEventListener('resize', onWindowResize)
+
+        this.translationUiCleanup = () => {
+            document.removeEventListener('mousedown', onDocumentMouseDown, true)
+            document.removeEventListener('keydown', onDocumentKeyDown, true)
+            window.removeEventListener('resize', onWindowResize)
+        }
+    }
+
+    private updateMonacoSelectionOverlay (editor = this.editor): void {
+        if (!editor || this.diffMode || this.showMarkdownPreview() || this.openError || (this.isBinary && !this.forceOpenBinary)) {
+            this.clearTranslationSelection('monaco')
+            return
+        }
+
+        const state = this.getMonacoSelectionState(editor)
+        if (!state) {
+            this.clearTranslationSelection('monaco')
+            return
+        }
+
+        this.setTranslationSelectionState(state)
+    }
+
+    private getMonacoSelectionState (editor: any): TranslationSelectionState | null {
+        const selection = editor?.getSelection?.()
+        const model = editor?.getModel?.()
+        if (!selection || !model || selection.isEmpty?.()) {
+            return null
+        }
+
+        const text = this.normalizeTranslationSelectionText(model.getValueInRange(selection))
+        if (!text) {
+            return null
+        }
+
+        const anchor = this.getMonacoSelectionAnchor(editor, selection)
+        if (!anchor) {
+            return null
+        }
+
+        return {
+            text,
+            source: 'monaco',
+            sourceType: this.languageId || 'plaintext',
+            anchor,
+        }
+    }
+
+    private getMonacoSelectionAnchor (editor: any, selection: any): TranslationAnchor | null {
+        const hostRect = this.contentArea?.nativeElement.getBoundingClientRect()
+        const editorRect = editor?.getDomNode?.()?.getBoundingClientRect?.()
+        if (!hostRect || !editorRect) {
+            return null
+        }
+
+        const activePosition = selection?.getPosition?.() ?? {
+            lineNumber: selection?.positionLineNumber ?? selection?.endLineNumber,
+            column: selection?.positionColumn ?? selection?.endColumn,
+        }
+        if (!activePosition?.lineNumber || !activePosition?.column) {
+            return null
+        }
+
+        const visiblePosition = editor?.getScrolledVisiblePosition?.(activePosition)
+        if (!visiblePosition) {
+            return null
+        }
+
+        return {
+            top: editorRect.top - hostRect.top + visiblePosition.top + 2,
+            left: editorRect.left - hostRect.left + visiblePosition.left,
+        }
+    }
+
+    private scheduleMarkdownSelectionUpdate (): void {
+        if (this.translationSelectionTimer !== null) {
+            clearTimeout(this.translationSelectionTimer)
+        }
+        this.translationSelectionTimer = window.setTimeout(() => {
+            this.translationSelectionTimer = null
+            this.updateMarkdownSelectionOverlay()
+        }, 0)
+    }
+
+    private updateMarkdownSelectionOverlay (): void {
+        if (!this.showMarkdownPreview()) {
+            this.clearTranslationSelection('markdown')
+            return
+        }
+
+        const preview = this.contentArea?.nativeElement.querySelector('.markdown-preview') as HTMLElement | null
+        const range = this.getMarkdownSelectionRange(preview)
+        if (!preview || !range) {
+            this.clearTranslationSelection('markdown')
+            return
+        }
+
+        const text = this.normalizeTranslationSelectionText(window.getSelection?.()?.toString?.() ?? '')
+        if (!text) {
+            this.clearTranslationSelection('markdown')
+            return
+        }
+
+        const rect = range.getBoundingClientRect()
+        if (!rect || (!rect.width && !rect.height)) {
+            this.clearTranslationSelection('markdown')
+            return
+        }
+
+        const containerRect = this.contentArea?.nativeElement.getBoundingClientRect()
+        if (!containerRect) {
+            this.clearTranslationSelection('markdown')
+            return
+        }
+
+        this.setTranslationSelectionState({
+            text,
+            source: 'markdown',
+            sourceType: 'markdown',
+            anchor: {
+                top: rect.top - containerRect.top + 4,
+                left: rect.left - containerRect.left + rect.width / 2,
+            },
+        })
+    }
+
+    private getMarkdownSelectionRange (preview: HTMLElement | null): Range | null {
+        if (!preview) {
+            return null
+        }
+
+        const selection = window.getSelection?.()
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            return null
+        }
+
+        const range = selection.getRangeAt(0)
+        const commonAncestor = range.commonAncestorContainer
+        if (!preview.contains(commonAncestor.nodeType === Node.ELEMENT_NODE ? commonAncestor : commonAncestor.parentNode)) {
+            return null
+        }
+
+        return range
+    }
+
+    private normalizeTranslationSelectionText (text: string): string {
+        return (text ?? '').replace(/\r\n/g, '\n').trim()
+    }
+
+    private setTranslationSelectionState (state: TranslationSelectionState): void {
+        const previous = this.translationSelectionState
+        const sameSelection = !!previous &&
+            previous.source === state.source &&
+            previous.sourceType === state.sourceType &&
+            previous.text === state.text
+
+        this.translationSelectionState = state
+        this.translationSelectedText = state.text
+        this.translationButtonLabel = 'Translate'
+        this.translationButtonTop = state.anchor.top
+        this.translationButtonLeft = state.anchor.left
+
+        if (!sameSelection) {
+            this.translationRequestAbort?.abort()
+            this.translationRequestAbort = null
+            this.translationLoading = false
+            this.translationResult = ''
+            this.translationError = ''
+            this.translationEndpointUsed = ''
+            this.translationPopoverVisible = false
+        }
+
+        this.translationButtonVisible = !this.translationPopoverVisible
+        if (this.translationPopoverVisible) {
+            this.positionTranslationPopover(state.anchor)
+        }
+
+        this.safeDetectChanges()
+    }
+
+    private clearTranslationSelection (source?: TranslationSelectionSource): void {
+        if (source && this.translationSelectionState?.source !== source) {
+            return
+        }
+        this.closeTranslationPopover()
+    }
+
+    private positionTranslationPopover (anchor: TranslationAnchor): void {
+        const host = this.contentArea?.nativeElement
+        const hostRect = host?.getBoundingClientRect()
+        const width = Math.min(420, Math.max(260, (hostRect?.width ?? 420) - 24))
+        const left = Math.max(12, Math.min(anchor.left - width / 2, Math.max(12, (hostRect?.width ?? width) - width - 12)))
+        const top = Math.max(12, Math.min(anchor.top + 12, Math.max(12, (hostRect?.height ?? 400) - 220)))
+
+        this.translationPopoverWidth = width
+        this.translationPopoverLeft = left
+        this.translationPopoverTop = top
+    }
+
+    private openTranslationPopover (): void {
+        if (!this.translationSelectionState) {
+            return
+        }
+
+        this.translationSelectedText = this.translationSelectionState.text
+        this.translationPopoverVisible = true
+        this.translationButtonVisible = false
+        this.positionTranslationPopover(this.translationSelectionState.anchor)
+        this.safeDetectChanges()
+    }
+
+    private buildTranslationCacheKey (state: TranslationSelectionState): string {
+        const config = this.translationSettings
+        return JSON.stringify({
+            base: config.apiBaseUrl,
+            endpointMode: config.endpointMode,
+            model: config.model,
+            targetLanguage: config.targetLanguage,
+            sourceType: state.sourceType,
+            text: state.text,
+        })
+    }
+
+    private async runTranslationForCurrentSelection (): Promise<void> {
+        const state = this.translationSelectionState
+        if (!state) {
+            return
+        }
+
+        this.openTranslationPopover()
+        this.translationResult = ''
+        this.translationError = ''
+
+        if (state.text.length > TRANSLATION_MAX_SELECTION_LENGTH) {
+            this.translationLoading = false
+            this.translationError = `Selection is too long to translate (${state.text.length} characters, max ${TRANSLATION_MAX_SELECTION_LENGTH})`
+            this.safeDetectChanges()
+            return
+        }
+
+        const cacheKey = this.buildTranslationCacheKey(state)
+        const cached = this.translationCache.get(cacheKey)
+        if (cached) {
+            this.translationLoading = false
+            this.translationResult = cached
+            this.translationEndpointUsed = 'cache'
+            this.safeDetectChanges()
+            return
+        }
+
+        this.translationRequestAbort?.abort()
+        this.translationRequestAbort = new AbortController()
+        this.translationLoading = true
+        this.translationEndpointUsed = ''
+        this.safeDetectChanges()
+
+        try {
+            const result = await translateSelection(this.translationSettings, {
+                text: state.text,
+                sourceType: state.sourceType,
+                signal: this.translationRequestAbort.signal,
+            })
+
+            if (this.translationSelectionState?.text !== state.text) {
+                return
+            }
+
+            this.translationResult = result.text
+            this.translationEndpointUsed = result.endpointUsed
+            this.translationCache.set(cacheKey, result.text)
+            this.translationError = ''
+        } catch (e: any) {
+            if (this.translationRequestAbort?.signal.aborted) {
+                return
+            }
+
+            const err = e instanceof TranslationError
+                ? e
+                : new TranslationError(e?.message ?? 'Translation request failed')
+            this.translationResult = ''
+            this.translationEndpointUsed = ''
+            this.translationError = err.message
+        } finally {
+            this.translationLoading = false
+            this.translationRequestAbort = null
+            this.safeDetectChanges()
+        }
     }
 
     private getDiffModifiedText (): string {
@@ -2760,6 +3451,13 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         const selection = editor?.getSelection?.()
         const hasSelection = !!selection && !selection.isEmpty()
         const readOnly = this.isEditorReadOnly(editor)
+        const canTranslate =
+            hasSelection &&
+            !this.diffMode &&
+            !this.openError &&
+            !this.loading &&
+            !this.saving &&
+            !(this.isBinary && !this.forceOpenBinary)
 
         const canReload = !this.openError && !this.loading && !this.saving && !this.diffMode
         const canSaveBase =
@@ -2806,6 +3504,23 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                         click: () => this.runEditorAction(editor, 'editor.action.startFindReplaceAction'),
                     },
                 ],
+            },
+            { type: 'separator' },
+            {
+                label: 'Translate Selection',
+                enabled: canTranslate,
+                click: () => {
+                    const state = this.getMonacoSelectionState(editor)
+                    if (!state) {
+                        return
+                    }
+                    this.setTranslationSelectionState(state)
+                    this.startTranslationFromSelection()
+                },
+            },
+            {
+                label: 'Translation Settings',
+                click: () => this.openTranslationSettings(),
             },
             { type: 'separator' },
             {
