@@ -1,40 +1,40 @@
 .d-flex.flex-column.w-100.h-100
     .editor-shell.d-flex.flex-column.w-100.h-100.min-vh-0.border.rounded
         .editor-toolbar.d-flex.align-items-center.gap-2.p-2.border-bottom.flex-wrap([class.editor-toolbar-dark]='darkMode', [class.editor-toolbar-light]='!darkMode')
-            button.btn.btn-outline-secondary.btn-sm.text-nowrap(type='button', (click)='toggleSidebar()', [title]='sidebarVisible ? "隐藏侧栏" : "显示侧栏"')
+            button.btn.btn-outline-secondary.btn-sm.text-nowrap(type='button', (click)='toggleSidebar()', [title]='sidebarVisible ? "Hide sidebar" : "Show sidebar"')
                 i.fas.me-1([class.fa-chevron-left]='sidebarVisible', [class.fa-chevron-right]='!sidebarVisible')
-                span 资源管理器
+                span Explorer
 
             button.btn.btn-primary.btn-sm.text-nowrap(*ngIf='!diffMode', (click)='save()', [disabled]='openError || readOnlyLargeFile || showPdfPreview() || (isBinary && !forceOpenBinary) || !dirty || saving || loading', [class.opacity-75]='saving || loading')
                 i.fas.fa-spinner.fa-spin.me-1(*ngIf='saving || loading')
                 i.fas.fa-save.fa-floppy-disk.me-1(*ngIf='!saving && !loading')
-                span {{saving ? '保存中...' : (loading ? '加载中...' : '保存')}}
+                span {{saving ? 'Saving...' : (loading ? 'Loading...' : 'Save')}}
 
             .btn-group.btn-group-sm(*ngIf='diffMode', role='group')
                 button.btn.btn-danger.text-nowrap((click)='resolveConflictUseLocal()', [disabled]='saving || loading')
                     i.fas.fa-upload.fa-cloud-arrow-up.me-1
-                    span 使用本地版本
+                    span Use local version
                 button.btn.btn-outline-secondary.text-nowrap((click)='resolveConflictUseRemote()', [disabled]='saving || loading')
                     i.fas.fa-download.fa-cloud-arrow-down.me-1
-                    span 使用远端版本
+                    span Use remote version
                 button.btn.btn-outline-secondary.text-nowrap((click)='resolveConflictCancel()', [disabled]='saving || loading')
                     i.fas.fa-xmark.fa-times.me-1
-                    span 取消
+                    span Cancel
 
             .btn-group.btn-group-sm(role='group')
                 button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='toggleFollowTheme()')
                     i.fas.fa-gear.fa-cog.me-1
-                    span {{followTabbyTheme ? '主题：自动' : '主题：手动'}}
+                    span {{followTabbyTheme ? 'Theme: Auto' : 'Theme: Manual'}}
                 button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='toggleDarkMode()')
                     i.fas.fa-moon.me-1(*ngIf='darkMode')
                     i.fas.fa-sun.me-1(*ngIf='!darkMode')
-                    span {{darkMode ? '深色' : '浅色'}}
+                    span {{darkMode ? 'Dark' : 'Light'}}
                 button.btn.btn-outline-secondary.text-nowrap(type='button', (click)='openEncodingMenu($event)', [disabled]='openError || loading || saving || diffMode || showPdfPreview() || (isBinary && !forceOpenBinary)')
                     i.fas.fa-language.me-1
                     span {{getEncodingLabel()}}
                 button.btn.btn-outline-secondary.text-nowrap.translation-toolbar-btn(type='button', (click)='openTranslationSettings()')
                     i.fas.fa-language.me-1
-                    span 助手设置
+                    span AI
 
             .btn-group.btn-group-sm(*ngIf='showMarkdownToolbar()', role='group')
                 button.btn.text-nowrap(
@@ -45,7 +45,7 @@
                     [disabled]='loading'
                 )
                     i.fas.fa-code.me-1
-                    span 源码
+                    span Source
                 button.btn.text-nowrap(
                     type='button',
                     [class.btn-primary]='markdownPreview',
@@ -54,7 +54,7 @@
                     [disabled]='loading'
                 )
                     i.fas.fa-book-open.me-1
-                    span 预览
+                    span Preview
 
             .btn-group.btn-group-sm(*ngIf='showPdfToolbar()', role='group')
                 button.btn.btn-outline-secondary.text-nowrap(
@@ -63,7 +63,7 @@
                     [disabled]='pdfCurrentPage <= 1 || isPdfBusy()'
                 )
                     i.fas.fa-chevron-left.me-1
-                    span 上一页
+                    span Prev
                 button.btn.btn-outline-secondary.text-nowrap(type='button', disabled)
                     span {{pdfCurrentPage}} / {{pdfPageCount || 0}}
                 button.btn.btn-outline-secondary.text-nowrap(
@@ -71,7 +71,7 @@
                     (click)='goToNextPdfPage()',
                     [disabled]='pdfCurrentPage >= pdfPageCount || isPdfBusy()'
                 )
-                    span 下一页
+                    span Next
                     i.fas.fa-chevron-right.ms-1
                 button.btn.btn-outline-secondary.text-nowrap(
                     type='button',
@@ -79,7 +79,7 @@
                     [disabled]='isPdfBusy()'
                 )
                     i.fas.fa-magnifying-glass-minus.me-1
-                    span 缩小
+                    span Zoom Out
                 button.btn.btn-outline-secondary.text-nowrap(type='button', disabled)
                     span {{getPdfZoomLabel()}}
                 button.btn.btn-outline-secondary.text-nowrap(
@@ -88,22 +88,22 @@
                     [disabled]='isPdfBusy()'
                 )
                     i.fas.fa-magnifying-glass-plus.me-1
-                    span 放大
+                    span Zoom In
                 button.btn.btn-outline-secondary.text-nowrap(
                     type='button',
                     (click)='resetPdfZoom()',
                     [disabled]='isPdfBusy()'
                 )
                     i.fas.fa-arrows-rotate.me-1
-                    span 重置
+                    span Reset
 
             span.status-badge.badge.rounded-pill.text-nowrap([ngClass]='getStatusBadgeClass()') {{status}}
 
             span.flex-grow-1
 
-            span.badge.bg-warning.text-dark(*ngIf='diffMode') 冲突
-            span.badge.bg-warning.text-dark(*ngIf='readOnlyLargeFile && !diffMode') 只读
-            span.badge.bg-warning.text-dark(*ngIf='dirty && !diffMode') 已修改
+            span.badge.bg-warning.text-dark(*ngIf='diffMode') Conflict
+            span.badge.bg-warning.text-dark(*ngIf='readOnlyLargeFile && !diffMode') Read-only
+            span.badge.bg-warning.text-dark(*ngIf='dirty && !diffMode') Modified
 
         .d-flex.flex-grow-1.min-vh-0.min-h-0
             //- Sidebar / file tree
@@ -112,20 +112,20 @@
                     i.fas.fa-folder-open.text-warning.me-1
                     span.text-truncate.flex-grow-1.small {{currentDir}}
 
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='goUpDirectory()', [disabled]='loadingDir || !canGoUpDirectory()', title='上一级')
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='goUpDirectory()', [disabled]='loadingDir || !canGoUpDirectory()', title='Up')
                         i.fas.fa-level-up-alt
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='refreshDirectory()', [disabled]='loadingDir', title='刷新')
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='refreshDirectory()', [disabled]='loadingDir', title='Refresh')
                         i.fas.fa-sync-alt([class.fa-spin]='loadingDir')
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='隐藏')
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='Hide')
                         i.fas.fa-xmark.fa-times
 
                 .sidebar-tree.flex-grow-1.overflow-auto((contextmenu)='onSidebarContextMenu($event)')
                     .tree-item.d-flex.align-items-center.py-1.pe-2(*ngIf='editingParentDir === currentDir && !editingTreeItem', [style.padding-left.px]='8')
                         i.fas.me-2([class.fa-folder.text-warning]='editingNewType === "folder"', [class.fa-file]='editingNewType !== "folder"')
                         input.tree-edit-input.flex-grow-1(type='text', [value]='editingTreeName', (input)='editingTreeName = $event.target.value', (keydown.enter)='commitEdit(); $event.preventDefault()', (keydown.escape)='cancelEdit(); $event.stopPropagation()', (blur)='onEditBlur()', (click)='$event.stopPropagation()')
-                    .text-muted.small.p-2(*ngIf='loadingDir') 加载中...
+                    .text-muted.small.p-2(*ngIf='loadingDir') Loading...
                     .text-danger.small.p-2(*ngIf='dirLoadError && !loadingDir') {{dirLoadError}}
-                    .text-muted.small.p-2(*ngIf='!loadingDir && !dirLoadError && (!dirContents || !dirContents.length)') 空目录
+                    .text-muted.small.p-2(*ngIf='!loadingDir && !dirLoadError && (!dirContents || !dirContents.length)') Empty
 
                     ng-container(*ngFor='let item of dirContents')
                         ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: item, depth: 0}')
@@ -138,15 +138,15 @@
                     .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
                         i.fas.fa-triangle-exclamation.fa-3x.mb-3.text-warning
                         p.fw-semibold.mb-2 {{openError}}
-                        button.btn.btn-secondary.btn-sm((click)='closeTab()') 关闭
+                        button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
                 .position-absolute.top-0.start-0.w-100.h-100.d-flex.align-items-center.justify-content-center.p-4(*ngIf='isBinary && !forceOpenBinary && !showPdfPreview()')
                     .editor-overlay-card.border.rounded.p-4.bg-body.text-center.shadow-sm
                         i.fas.fa-file-zipper.fa-3x.mb-3
-                        p.mb-3 该文件似乎是二进制文件，无法直接编辑。
+                        p.mb-3 This file appears to be binary and cannot be edited.
                         .d-flex.justify-content-center.gap-2
-                            button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') 强制打开
-                            button.btn.btn-secondary.btn-sm((click)='closeTab()') 关闭
+                            button.btn.btn-outline-secondary.btn-sm((click)='forceOpenBinaryFile()') Force Open
+                            button.btn.btn-secondary.btn-sm((click)='closeTab()') Close
 
                 button.btn.btn-primary.btn-sm.translation-fab(
                     *ngIf='translationButtonVisible',
@@ -169,16 +169,16 @@
                 )
                     .translation-popover-header
                         .translation-popover-drag-area((mousedown)='startTranslationPopoverDrag($event)')
-                            strong.small 助手
-                            span.translation-popover-drag-hint 拖动
+                            strong.small AI
+                            span.translation-popover-drag-hint Drag
                         .translation-popover-actions
                             span.badge.bg-secondary.small(*ngIf='getActivePopoverEndpointUsed()') {{getActivePopoverEndpointUsed()}}
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='copyActivePopoverResult()', [disabled]='!(translationActiveTab === "translate" ? translationResult : askAiResult)')
                                 i.fas.fa-copy.me-1
-                                span 复制
+                                span Copy
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='openTranslationSettings()')
                                 i.fas.fa-gear.me-1
-                                span 设置
+                                span Settings
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationPopover()')
                                 i.fas.fa-xmark.fa-times
 
@@ -188,64 +188,64 @@
                             [class.btn-primary]='isTranslateTabActive()',
                             [class.btn-outline-secondary]='!isTranslateTabActive()',
                             (click)='setTranslationPopoverTab("translate")'
-                        ) 翻译
+                        ) Translate
                         button.btn.btn-sm.text-nowrap(
                             type='button',
                             [class.btn-primary]='isAskAiTabActive()',
                             [class.btn-outline-secondary]='!isAskAiTabActive()',
                             (click)='setTranslationPopoverTab("ask_ai")'
-                        ) 提问
+                        ) Ask
 
                     .translation-popover-main
                         .translation-popover-source(*ngIf='translationSelectedText') {{translationSelectedText}}
                         ng-container(*ngIf='isTranslateTabActive()')
                             .translation-popover-body.text-muted(*ngIf='translationLoading')
                                 i.fas.fa-spinner.fa-spin.me-2
-                                span 翻译中...
+                                span Translating...
                             .translation-popover-body.translation-popover-error(*ngIf='!translationLoading && translationError')
                                 p.mb-2 {{translationError}}
                                 button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryTranslation()', *ngIf='hasTranslationSelection()')
                                     i.fas.fa-rotate-right.me-1
-                                    span 重试
+                                    span Retry
                             .translation-popover-body(*ngIf='!translationLoading && !translationError && translationResult') {{translationResult}}
-                            .translation-popover-body.text-muted(*ngIf='!translationLoading && !translationError && !translationResult') 点击“翻译”加载翻译结果。
+                            .translation-popover-body.text-muted(*ngIf='!translationLoading && !translationError && !translationResult') Click Translate to load the translation result.
 
                         ng-container(*ngIf='isAskAiTabActive()')
                             .translation-ask-form
                                 .translation-ask-config
                                     label.d-inline-flex.align-items-center.gap-2
-                                        span.translation-ask-footnote 思考强度
+                                        span.translation-ask-footnote Reasoning
                                         select.translation-ask-select(
                                             [value]='translationSettings.askReasoningEffort',
                                             (change)='setAskReasoningEffort($event.target.value)',
                                             [disabled]='askAiLoading'
                                         )
-                                            option(value='minimal') 最少
-                                            option(value='low') 低
-                                            option(value='medium') 中
-                                            option(value='high') 高
-                                            option(value='xhigh') 极高
-                                    span.translation-ask-footnote Ctrl/Cmd+Enter 发送
+                                            option(value='minimal') minimal
+                                            option(value='low') low
+                                            option(value='medium') medium
+                                            option(value='high') high
+                                            option(value='xhigh') xhigh
+                                    span.translation-ask-footnote Ctrl/Cmd+Enter to send
                                 textarea.translation-ask-input(
                                     [value]='askAiQuestion',
                                     (input)='askAiQuestion = $event.target.value',
                                     (keydown)='onAskAiQuestionKeyDown($event)',
-                                    placeholder='针对选中文本提问...'
+                                    placeholder='Ask about the selected text...'
                                 )
                                 .d-flex.justify-content-end
                                     button.btn.btn-primary.btn-sm(type='button', (click)='submitAskAiQuestion()', [disabled]='askAiLoading || !askAiQuestion.trim()')
                                         i.fas.fa-paper-plane.me-1
-                                        span 提问
+                                        span Ask
                             .translation-popover-body.text-muted(*ngIf='askAiLoading')
                                 i.fas.fa-spinner.fa-spin.me-2
-                                span 提问中...
+                                span Asking...
                             .translation-popover-body.translation-popover-error(*ngIf='!askAiLoading && askAiError')
                                 p.mb-2 {{askAiError}}
                                 button.btn.btn-outline-secondary.btn-sm(type='button', (click)='retryAskAi()', *ngIf='hasTranslationSelection() && askAiQuestion.trim()')
                                     i.fas.fa-rotate-right.me-1
-                                    span 重试
+                                    span Retry
                             .translation-popover-body(*ngIf='!askAiLoading && !askAiError && askAiResult') {{askAiResult}}
-                            .translation-popover-body.text-muted(*ngIf='!askAiLoading && !askAiError && !askAiResult') 输入问题以向选中文本提问。
+                            .translation-popover-body.text-muted(*ngIf='!askAiLoading && !askAiError && !askAiResult') Enter a question to ask about the selected text.
                     .translation-popover-resize-handle((mousedown)='startTranslationPopoverResize($event)')
 
                 .markdown-preview-shell.w-100.h-100(
@@ -267,10 +267,10 @@
                     .pdf-preview-loading(*ngIf='pdfLoading')
                         .text-muted
                             i.fas.fa-spinner.fa-spin.me-2
-                            span 正在加载 PDF...
+                            span Loading PDF...
                     .pdf-preview-error(*ngIf='!pdfLoading && pdfError')
                         .pdf-preview-error-card
-                            h6.mb-2 PDF 预览失败
+                            h6.mb-2 PDF preview failed
                             p.mb-0 {{pdfError}}
                     .pdf-preview-stage(*ngIf='!pdfLoading && !pdfError')
                         .pdf-preview-page(#pdfPreviewPage)
@@ -282,40 +282,40 @@
                 .translation-settings-backdrop(*ngIf='translationSettingsVisible', (mousedown)='closeTranslationSettings()')
                     .translation-settings-card.p-3((mousedown)='$event.stopPropagation()', (click)='$event.stopPropagation()')
                         .d-flex.align-items-center.justify-content-between.mb-3
-                            h6.mb-0 助手设置
+                            h6.mb-0 AI Settings
                             button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()')
                                 i.fas.fa-xmark.fa-times
                         .translation-settings-grid
                             label.translation-settings-field
-                                span.small.fw-semibold API 基础地址
+                                span.small.fw-semibold API Base URL
                                 input(type='text', [value]='translationSettingsDraft.apiBaseUrl', (input)='translationSettingsDraft.apiBaseUrl = $event.target.value', placeholder='https://your-openai-compatible-api.example/v1')
                             label.translation-settings-field
-                                span.small.fw-semibold API 密钥
+                                span.small.fw-semibold API Key
                                 input(type='password', [value]='translationSettingsDraft.apiKey', (input)='translationSettingsDraft.apiKey = $event.target.value', placeholder='sk-...')
                             label.translation-settings-field
-                                span.small.fw-semibold 翻译模型
+                                span.small.fw-semibold Translation Model
                                 input(type='text', [value]='translationSettingsDraft.model', (input)='translationSettingsDraft.model = $event.target.value', placeholder='gpt-5.4-nano')
                             label.translation-settings-field
-                                span.small.fw-semibold 提问模型
+                                span.small.fw-semibold Ask Model
                                 input(type='text', [value]='translationSettingsDraft.askModel', (input)='translationSettingsDraft.askModel = $event.target.value', placeholder='gpt-5.4-nano')
                             label.translation-settings-field
-                                span.small.fw-semibold 目标语言
-                                input(type='text', [value]='translationSettingsDraft.targetLanguage', (input)='translationSettingsDraft.targetLanguage = $event.target.value', placeholder='简体中文')
+                                span.small.fw-semibold Target Language
+                                input(type='text', [value]='translationSettingsDraft.targetLanguage', (input)='translationSettingsDraft.targetLanguage = $event.target.value', placeholder='Simplified Chinese')
                             label.translation-settings-field
-                                span.small.fw-semibold 接口模式
+                                span.small.fw-semibold Endpoint Mode
                                 select([value]='translationSettingsDraft.endpointMode', (change)='translationSettingsDraft.endpointMode = $event.target.value')
-                                    option(value='auto') 自动
-                                    option(value='responses') Responses 接口
-                                    option(value='chat_completions') 对话补全接口
+                                    option(value='auto') Auto
+                                    option(value='responses') Responses API
+                                    option(value='chat_completions') Chat Completions
                             label.translation-settings-field
-                                span.small.fw-semibold 超时（毫秒）
+                                span.small.fw-semibold Timeout (ms)
                                 input(type='number', min='1000', step='1000', [value]='translationSettingsDraft.timeoutMs', (input)='translationSettingsDraft.timeoutMs = $event.target.value')
                         p.text-danger.small.mt-3.mb-0(*ngIf='translationConfigError') {{translationConfigError}}
                         p.translation-settings-footnote.mt-3.mb-0
-                            | 选择“自动”时，会先尝试 `/v1/responses`，如果服务端明确不支持 Responses 接口，再回退到 `/v1/chat/completions`。
+                            | `Auto` will try `/v1/responses` first and fall back to `/v1/chat/completions` when the server clearly does not support Responses.
                         .d-flex.justify-content-end.gap-2.mt-3
-                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()') 取消
-                            button.btn.btn-primary.btn-sm(type='button', (click)='saveTranslationSettings()') 保存
+                            button.btn.btn-outline-secondary.btn-sm(type='button', (click)='closeTranslationSettings()') Cancel
+                            button.btn.btn-primary.btn-sm(type='button', (click)='saveTranslationSettings()') Save
 
         //- File tree item template (recursive)
         ng-template(#fileTreeItem, let-item='item', let-depth='depth')
@@ -342,7 +342,7 @@
                 i.fas.fa-sync-alt.tree-refresh-btn(
                     *ngIf='item.isDirectory && !refreshingDirs.has(item.fullPath) && editingTreeItem !== item',
                     (click)='refreshNode(item); $event.stopPropagation()',
-                    title='刷新文件夹'
+                    title='Refresh folder'
                 )
 
             ng-container(*ngIf='item.isDirectory && expandedDirs.has(item.fullPath)')
@@ -352,8 +352,8 @@
                 .text-muted.small.py-1.pe-2(*ngIf='item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24') {{item.loadError}}
                 .text-muted.small.py-1.pe-2(*ngIf='!item.loaded && !item.loadError', [style.padding-left.px]='(depth + 1) * 16 + 24')
                     i.fas.fa-spinner.fa-spin.me-1
-                    | 加载中...
-                .text-muted.small.py-1.pe-2(*ngIf='item.loaded && item.children && !item.children.length', [style.padding-left.px]='(depth + 1) * 16 + 24') 空目录
+                    | Loading...
+                .text-muted.small.py-1.pe-2(*ngIf='item.loaded && item.children && !item.children.length', [style.padding-left.px]='(depth + 1) * 16 + 24') Empty
                 ng-container(*ngIf='item.children')
                     ng-container(*ngFor='let child of item.children')
                         ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: child, depth: depth + 1}')

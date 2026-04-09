@@ -22,7 +22,7 @@ export class EditInTabbySFTPContextMenu extends SFTPContextMenuItemProvider {
 
         return [
             {
-                label: '在 Tabby 中编辑',
+                label: 'Edit in Tabby',
                 click: () => this.openEditorTab(item, panel),
             },
         ]
@@ -32,7 +32,7 @@ export class EditInTabbySFTPContextMenu extends SFTPContextMenuItemProvider {
         // SSHSession isn't exported from tabby-ssh public API, but the runtime object has ref/unref.
         const sshSession: any = (panel as any).session
         if (!sshSession?.openSFTP) {
-            this.notifications.error('没有可用于编辑的 SSH 会话')
+            this.notifications.error('No SSH session available for editing')
             return
         }
 
@@ -50,7 +50,7 @@ export class EditInTabbySFTPContextMenu extends SFTPContextMenuItemProvider {
             })
         } catch (e: any) {
             sshSession.unref?.()
-            this.notifications.error(e?.message ?? '打开编辑器失败')
+            this.notifications.error(e?.message ?? 'Failed to open editor')
         }
     }
 }

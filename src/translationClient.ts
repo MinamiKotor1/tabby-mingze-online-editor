@@ -49,7 +49,7 @@ const DEFAULT_TIMEOUT_MS = 30000
 function getFetch (): typeof fetch {
     const fn = (globalThis as any)?.fetch
     if (typeof fn !== 'function') {
-        throw new TranslationError('当前环境不支持 Fetch API')
+        throw new TranslationError('Fetch API is not available in this environment')
     }
     return fn.bind(globalThis)
 }
@@ -61,14 +61,14 @@ function normalizeBaseUrl (rawBaseUrl: string): string {
 function buildEndpointUrl (baseUrl: string, endpointPath: string): string {
     const normalizedBase = normalizeBaseUrl(baseUrl)
     if (!normalizedBase) {
-        throw new TranslationError('未配置翻译 API 基础地址')
+        throw new TranslationError('Translation API Base URL is not configured')
     }
     const path = endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`
     return `${normalizedBase}${path}`
 }
 
 function buildSystemPrompt (targetLanguage: string, sourceType?: string): string {
-    const safeLanguage = (targetLanguage ?? '').trim() || '简体中文'
+    const safeLanguage = (targetLanguage ?? '').trim() || 'Simplified Chinese'
     const safeSourceType = (sourceType ?? 'text').trim()
 
     return [
@@ -262,7 +262,7 @@ async function requestTextViaResponses (
 
     const text = extractTextFromResponses(data)
     if (!text) {
-        throw new TranslationError('Responses 接口未返回任何文本')
+        throw new TranslationError('Responses API returned no translation text')
     }
 
     return {
@@ -303,7 +303,7 @@ async function requestTextViaChatCompletions (
 
     const text = extractTextFromChatCompletions(data)
     if (!text) {
-        throw new TranslationError('对话补全接口未返回任何文本')
+        throw new TranslationError('Chat Completions API returned no translation text')
     }
 
     return {
@@ -343,16 +343,16 @@ async function runTextGeneration (
     opts: RunTextGenerationOptions,
 ): Promise<TranslationResult> {
     if (!(config.apiBaseUrl ?? '').trim()) {
-        throw new TranslationError('未配置翻译 API 基础地址')
+        throw new TranslationError('Translation API Base URL is not configured')
     }
     if (!(config.apiKey ?? '').trim()) {
-        throw new TranslationError('未配置翻译 API 密钥')
+        throw new TranslationError('Translation API key is not configured')
     }
     if (!(opts.model ?? '').trim()) {
-        throw new TranslationError(`未配置${opts.requestName}模型`)
+        throw new TranslationError(`${opts.requestName} model is not configured`)
     }
     if (!(opts.userText ?? '').trim()) {
-        throw new TranslationError(`${opts.requestName}未提供输入内容`)
+        throw new TranslationError(`No input was provided for ${opts.requestName.toLowerCase()}`)
     }
 
     const timeoutController = new AbortController()
@@ -386,12 +386,12 @@ async function runTextGeneration (
         return await requestTextViaChatCompletions(config, request, signal)
     } catch (e: any) {
         if (timeoutController.signal.aborted && !(opts.signal?.aborted)) {
-            throw new TranslationError(`${opts.requestName}超时（${timeoutMs} 毫秒）`)
+            throw new TranslationError(`${opts.requestName} timed out after ${timeoutMs} ms`)
         }
         if (e instanceof TranslationError) {
             throw e
         }
-        throw new TranslationError(e?.message ?? `${opts.requestName}失败`)
+        throw new TranslationError(e?.message ?? `${opts.requestName} failed`)
     } finally {
         clearTimeout(timeoutHandle)
     }
@@ -404,7 +404,7 @@ export function getDefaultTranslationConfig (): TranslationConfig {
         model: 'gpt-5.4-nano',
         askModel: 'gpt-5.4-nano',
         askReasoningEffort: 'medium',
-        targetLanguage: '简体中文',
+        targetLanguage: 'Simplified Chinese',
         endpointMode: 'auto',
         timeoutMs: DEFAULT_TIMEOUT_MS,
     }
@@ -415,7 +415,7 @@ export async function translateSelection (
     req: TranslationRequest,
 ): Promise<TranslationResult> {
     if (!(req.text ?? '').trim()) {
-        throw new TranslationError('没有可供翻译的选中文本')
+        throw new TranslationError('No text selected for translation')
     }
 
     return await runTextGeneration(config, {
@@ -423,7 +423,7 @@ export async function translateSelection (
         systemPrompt: buildSystemPrompt(config.targetLanguage, req.sourceType),
         userText: req.text,
         signal: req.signal,
-        requestName: '翻译请求',
+        requestName: 'Translation request',
     })
 }
 
@@ -432,10 +432,10 @@ export async function askAiAboutSelection (
     req: AskAiRequest,
 ): Promise<AskAiResult> {
     if (!(req.selection ?? '').trim()) {
-        throw new TranslationError('没有可供提问的选中文本')
+        throw new TranslationError('No selected text is available for asking')
     }
     if (!(req.question ?? '').trim()) {
-        throw new TranslationError('请输入问题')
+        throw new TranslationError('Please enter a question')
     }
 
     return await runTextGeneration(config, {
@@ -444,6 +444,6 @@ export async function askAiAboutSelection (
         userText: buildAskAiUserPrompt(req.selection, req.question),
         reasoningEffort: config.askReasoningEffort,
         signal: req.signal,
-        requestName: '提问请求',
+        requestName: 'Ask request',
     })
 }
