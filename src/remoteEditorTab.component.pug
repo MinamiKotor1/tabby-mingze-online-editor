@@ -259,7 +259,9 @@
                 .pdf-preview-shell.w-100.h-100(
                     *ngIf='showPdfPreview()',
                     tabindex='0',
+                    (mousedown)='onPdfPreviewMouseDown($event)',
                     (mouseup)='onPdfPreviewMouseUp()',
+                    (copy)='onPdfPreviewCopy($event)',
                     (keyup)='onPdfPreviewKeyUp()'
                 )
                     .pdf-preview-loading(*ngIf='pdfLoading')

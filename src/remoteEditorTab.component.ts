@@ -368,6 +368,7 @@ const TRANSLATION_POPOVER_MIN_HEIGHT = 220
 const PDF_MIN_ZOOM = 0.5
 const PDF_MAX_ZOOM = 3
 const PDF_ZOOM_STEP = 0.25
+const PDF_CSS_UNITS = 96 / 72
 const ASK_REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
 
 function clampNumber (value: number, min: number, max: number): number {
@@ -883,6 +884,28 @@ function luminance (rgb: RGB): number {
 
         .pdf-text-layer ::-moz-selection {
             background: AccentColor;
+        }
+
+        .pdf-text-layer br::selection {
+            background: transparent;
+        }
+
+        .pdf-text-layer br::-moz-selection {
+            background: transparent;
+        }
+
+        .pdf-text-layer .endOfContent {
+            display: block;
+            position: absolute;
+            inset: 100% 0 0;
+            z-index: -1;
+            cursor: default;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .pdf-text-layer .endOfContent.active {
+            top: 0;
         }
 
         .translation-toolbar-btn {
@@ -2141,10 +2164,29 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     onPdfPreviewMouseUp (): void {
         this.schedulePdfSelectionUpdate()
+        this.resetPdfTextLayerSelectionHandle()
     }
 
     onPdfPreviewKeyUp (): void {
         this.schedulePdfSelectionUpdate()
+    }
+
+    onPdfPreviewMouseDown (event: MouseEvent): void {
+        this.updatePdfTextLayerSelectionHandle(event)
+    }
+
+    onPdfPreviewCopy (event: ClipboardEvent): void {
+        const selection = window.getSelection?.()
+        const text = this.normalizeTranslationSelectionText(selection?.toString?.() ?? '')
+        if (!text || !event.clipboardData) {
+            return
+        }
+
+        const pdfjs = getPdfJs()
+        const normalizedText = pdfjs.normalizeUnicode(text.replace(/\u0000/g, ''))
+        event.clipboardData.setData('text/plain', normalizedText)
+        event.preventDefault()
+        event.stopPropagation()
     }
 
     goToPreviousPdfPage (): void {
@@ -2932,7 +2974,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
-            const viewport = page.getViewport({ scale: this.pdfZoom })
+            const viewport = page.getViewport({
+                scale: this.pdfZoom * PDF_CSS_UNITS,
+            })
             const outputScale = window.devicePixelRatio || 1
             const context = canvas.getContext('2d', { alpha: false })
             if (!context) {
@@ -2946,6 +2990,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             textLayer.innerHTML = ''
             textLayer.style.width = `${viewport.width}px`
             textLayer.style.height = `${viewport.height}px`
+            textLayer.style.setProperty('--scale-factor', `${viewport.scale}`)
             pageHost.style.width = `${viewport.width}px`
             pageHost.style.height = `${viewport.height}px`
             pageHost.style.setProperty('--scale-factor', `${viewport.scale}`)
@@ -2974,9 +3019,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 viewport,
                 textDivs,
                 textDivProperties,
+                textContentItemsStr: [],
+                isOffscreenCanvasSupported: true,
             })
             this.pdfTextLayerRenderTask = textLayerTask
             await textLayerTask.promise
+            if (renderToken !== this.pdfRenderToken) {
+                return
+            }
+
+            this.ensurePdfTextLayerSelectionTail(textLayer)
         } catch (error: any) {
             const message = `${error?.message ?? ''}`.toLowerCase()
             const cancelled = renderToken !== this.pdfRenderToken || message.includes('cancel')
@@ -2997,6 +3049,50 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.pdfTextLayerRenderTask?.cancel?.()
         this.pdfRenderTask = null
         this.pdfTextLayerRenderTask = null
+        this.resetPdfTextLayerSelectionHandle()
+    }
+
+    private ensurePdfTextLayerSelectionTail (textLayer: HTMLElement): void {
+        if (textLayer.querySelector('.endOfContent')) {
+            return
+        }
+
+        const endOfContent = document.createElement('div')
+        endOfContent.className = 'endOfContent'
+        textLayer.append(endOfContent)
+    }
+
+    private updatePdfTextLayerSelectionHandle (event: MouseEvent): void {
+        const textLayer = this.pdfTextLayer?.nativeElement
+        const endOfContent = textLayer?.querySelector('.endOfContent') as HTMLElement | null
+        if (!textLayer || !endOfContent) {
+            return
+        }
+
+        let adjustTop = event.target !== textLayer
+        if (adjustTop) {
+            const userSelect = getComputedStyle(endOfContent).getPropertyValue('-moz-user-select')
+            adjustTop = userSelect !== 'none'
+        }
+
+        if (adjustTop) {
+            const bounds = textLayer.getBoundingClientRect()
+            const ratio = bounds.height ? Math.max(0, (event.clientY - bounds.top) / bounds.height) : 0
+            endOfContent.style.top = `${(ratio * 100).toFixed(2)}%`
+        }
+
+        endOfContent.classList.add('active')
+    }
+
+    private resetPdfTextLayerSelectionHandle (): void {
+        const textLayer = this.pdfTextLayer?.nativeElement
+        const endOfContent = textLayer?.querySelector('.endOfContent') as HTMLElement | null
+        if (!endOfContent) {
+            return
+        }
+
+        endOfContent.style.top = ''
+        endOfContent.classList.remove('active')
     }
 
     private disposePdfPreview (): void {
