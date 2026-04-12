@@ -664,7 +664,7 @@ function luminance (rgb: RGB): number {
 
         .markdown-preview-shell {
             overflow: auto;
-            padding: 1.25rem;
+            padding: 1rem 1.5rem 2rem;
             background: var(--theme-bg, var(--bs-body-bg));
             color: var(--bs-body-color, inherit);
             user-select: text;
@@ -675,9 +675,10 @@ function luminance (rgb: RGB): number {
         .markdown-preview.markdown-body {
             box-sizing: border-box;
             min-width: 200px;
-            max-width: 980px;
+            width: 80%;
+            max-width: 1240px;
             margin: 0 auto;
-            padding: 45px;
+            padding: 40px 48px;
             border-radius: 10px;
             border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
@@ -692,6 +693,7 @@ function luminance (rgb: RGB): number {
 
         @media (max-width: 767px) {
             .markdown-preview.markdown-body {
+                width: 100%;
                 padding: 15px;
                 border-radius: 0;
                 border-left: 0;
