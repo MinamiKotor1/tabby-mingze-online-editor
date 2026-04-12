@@ -675,8 +675,8 @@ function luminance (rgb: RGB): number {
         .markdown-preview.markdown-body {
             box-sizing: border-box;
             min-width: 200px;
-            width: 80%;
-            max-width: 1240px;
+            width: clamp(320px, 90%, 1440px);
+            max-width: 100%;
             margin: 0 auto;
             padding: 40px 48px;
             border-radius: 10px;
