@@ -1,6 +1,11 @@
 import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@angular/core'
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
+import rehypeStringify from 'rehype-stringify'
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import remarkRehype from 'remark-rehype'
+import { unified } from 'unified'
 import {
     askAiAboutSelection,
     getDefaultTranslationConfig,
@@ -10,6 +15,9 @@ import {
     TranslationEndpointMode,
     TranslationError,
 } from './translationClient'
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('github-markdown-css/github-markdown.css')
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
 type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
@@ -47,12 +55,6 @@ function getMonaco (): Monaco {
     return require('monaco-editor/esm/vs/editor/editor.api')
 }
 
-function getMarked (): any {
-    // Reuse the Markdown parser bundled with Monaco instead of adding another dependency.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('monaco-editor/esm/vs/base/common/marked/marked')
-}
-
 function getDomPurify (): any {
     // Sanitize rendered HTML before binding it into the Angular template.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -70,6 +72,12 @@ function getPdfJs (): PdfJs {
     return pdfJsModule
 }
 
+const markdownPreviewProcessor = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeStringify, { allowDangerousHtml: true })
+
 function escapeHtml (value: string): string {
     return (value ?? '')
         .replace(/&/g, '&amp;')
@@ -81,22 +89,15 @@ function escapeHtml (value: string): string {
 
 function renderMarkdownPreview (text: string): string {
     try {
-        const markedModule = getMarked()
         const domPurifyModule = getDomPurify()
-        const parse = markedModule?.parse ?? markedModule?.marked ?? markedModule?.default?.parse ?? markedModule?.default
         const sanitize = domPurifyModule?.sanitize ?? domPurifyModule?.default?.sanitize ?? domPurifyModule?.default
 
-        if (typeof parse !== 'function' || typeof sanitize !== 'function') {
+        if (typeof sanitize !== 'function') {
             return `<pre>${escapeHtml(text)}</pre>`
         }
-
-        const rawHtml = parse(text ?? '', {
-            gfm: true,
-            breaks: false,
-            headerIds: true,
-            mangle: false,
-            langPrefix: 'language-',
-        })
+        const rawHtml = String(
+            markdownPreviewProcessor.processSync(text ?? ''),
+        )
 
         return sanitize(rawHtml, {
             USE_PROFILES: { html: true },
@@ -663,7 +664,7 @@ function luminance (rgb: RGB): number {
 
         .markdown-preview-shell {
             overflow: auto;
-            padding: 1.5rem;
+            padding: 1.25rem;
             background: var(--theme-bg, var(--bs-body-bg));
             color: var(--bs-body-color, inherit);
             user-select: text;
@@ -671,126 +672,139 @@ function luminance (rgb: RGB): number {
             cursor: text;
         }
 
-        .markdown-preview {
-            max-width: 960px;
+        .markdown-preview.markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 980px;
             margin: 0 auto;
-            line-height: 1.7;
-            font-size: 14px;
-            color: inherit;
-            overflow-wrap: anywhere;
+            padding: 45px;
+            border-radius: 10px;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+        }
+
+        .markdown-preview.markdown-body,
+        .markdown-preview.markdown-body * {
+            box-sizing: border-box;
             user-select: text;
             -webkit-user-select: text;
         }
 
-        .markdown-preview,
-        .markdown-preview * {
-            user-select: text;
-            -webkit-user-select: text;
+        @media (max-width: 767px) {
+            .markdown-preview.markdown-body {
+                padding: 15px;
+                border-radius: 0;
+                border-left: 0;
+                border-right: 0;
+            }
         }
 
-        .markdown-preview > :first-child {
-            margin-top: 0;
+        .markdown-preview.markdown-body[data-theme='light'] {
+            color-scheme: light;
+            --fgColor-accent: #0969da;
+            --bgColor-attention-muted: #fff8c5;
+            --bgColor-default: #ffffff;
+            --bgColor-muted: #f6f8fa;
+            --bgColor-neutral-muted: #818b981f;
+            --borderColor-accent-emphasis: #0969da;
+            --borderColor-attention-emphasis: #9a6700;
+            --borderColor-danger-emphasis: #cf222e;
+            --borderColor-default: #d1d9e0;
+            --borderColor-done-emphasis: #8250df;
+            --borderColor-success-emphasis: #1a7f37;
+            --borderColor-muted: #d1d9e0b3;
+            --borderColor-neutral-muted: #d1d9e0b3;
+            --color-prettylights-syntax-brackethighlighter-angle: #59636e;
+            --color-prettylights-syntax-brackethighlighter-unmatched: #82071e;
+            --color-prettylights-syntax-carriage-return-bg: #cf222e;
+            --color-prettylights-syntax-carriage-return-text: #f6f8fa;
+            --color-prettylights-syntax-comment: #59636e;
+            --color-prettylights-syntax-constant: #0550ae;
+            --color-prettylights-syntax-constant-other-reference-link: #0a3069;
+            --color-prettylights-syntax-entity: #6639ba;
+            --color-prettylights-syntax-entity-tag: #0550ae;
+            --color-prettylights-syntax-invalid-illegal-bg: rgba(255, 235, 233, 0.9);
+            --color-prettylights-syntax-invalid-illegal-text: #d1242f;
+            --color-prettylights-syntax-keyword: #cf222e;
+            --color-prettylights-syntax-markup-bold: #1f2328;
+            --color-prettylights-syntax-markup-changed-bg: #ffd8b5;
+            --color-prettylights-syntax-markup-changed-text: #953800;
+            --color-prettylights-syntax-markup-deleted-bg: #ffebe9;
+            --color-prettylights-syntax-markup-deleted-text: #82071e;
+            --color-prettylights-syntax-markup-heading: #0550ae;
+            --color-prettylights-syntax-markup-ignored-bg: #0550ae;
+            --color-prettylights-syntax-markup-ignored-text: #d1d9e0;
+            --color-prettylights-syntax-markup-inserted-bg: #dafbe1;
+            --color-prettylights-syntax-markup-inserted-text: #116329;
+            --color-prettylights-syntax-markup-italic: #1f2328;
+            --color-prettylights-syntax-markup-list: #3b2300;
+            --color-prettylights-syntax-meta-diff-range: #8250df;
+            --color-prettylights-syntax-storage-modifier-import: #1f2328;
+            --color-prettylights-syntax-string: #0a3069;
+            --color-prettylights-syntax-string-regexp: #116329;
+            --color-prettylights-syntax-sublimelinter-gutter-mark: #818b98;
+            --color-prettylights-syntax-variable: #953800;
+            --fgColor-attention: #9a6700;
+            --fgColor-danger: #d1242f;
+            --fgColor-default: #1f2328;
+            --fgColor-done: #8250df;
+            --fgColor-muted: #59636e;
+            --fgColor-success: #1a7f37;
+            --focus-outlineColor: #0969da;
         }
 
-        .markdown-preview > :last-child {
-            margin-bottom: 0;
-        }
-
-        .markdown-preview h1,
-        .markdown-preview h2,
-        .markdown-preview h3,
-        .markdown-preview h4,
-        .markdown-preview h5,
-        .markdown-preview h6 {
-            margin-top: 1.75rem;
-            margin-bottom: 0.75rem;
-            line-height: 1.3;
-            font-weight: 700;
-        }
-
-        .markdown-preview p,
-        .markdown-preview ul,
-        .markdown-preview ol,
-        .markdown-preview blockquote,
-        .markdown-preview table,
-        .markdown-preview pre {
-            margin-bottom: 1rem;
-        }
-
-        .markdown-preview ul,
-        .markdown-preview ol {
-            padding-left: 1.5rem;
-        }
-
-        .markdown-preview li + li {
-            margin-top: 0.25rem;
-        }
-
-        .markdown-preview a {
-            color: var(--bs-link-color, #0d6efd);
-            text-decoration: underline;
-        }
-
-        .markdown-preview img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 0.5rem;
-        }
-
-        .markdown-preview blockquote {
-            padding: 0.75rem 1rem;
-            border-left: 4px solid var(--bs-border-color, rgba(0, 0, 0, 0.15));
-            background: var(--theme-bg-less, rgba(0, 0, 0, 0.02));
-            border-radius: 0.5rem;
-        }
-
-        .markdown-preview code {
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-            font-size: 0.92em;
-            padding: 0.15rem 0.35rem;
-            border-radius: 0.35rem;
-            background: var(--theme-bg-less, rgba(0, 0, 0, 0.05));
-        }
-
-        .markdown-preview pre {
-            padding: 1rem;
-            border-radius: 0.75rem;
-            background: var(--theme-bg-less, rgba(0, 0, 0, 0.04));
-            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
-            overflow: auto;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-
-        .markdown-preview pre code {
-            padding: 0;
-            background: transparent;
-            border-radius: 0;
-        }
-
-        .markdown-preview hr {
-            border: 0;
-            border-top: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
-            margin: 1.5rem 0;
-        }
-
-        .markdown-preview table {
-            display: block;
-            width: max-content;
-            max-width: 100%;
-            overflow: auto;
-            border-collapse: collapse;
-        }
-
-        .markdown-preview th,
-        .markdown-preview td {
-            padding: 0.6rem 0.8rem;
-            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
-        }
-
-        .markdown-preview th {
-            background: var(--theme-bg-less, rgba(0, 0, 0, 0.03));
-            font-weight: 600;
+        .markdown-preview.markdown-body[data-theme='dark'] {
+            color-scheme: dark;
+            --fgColor-accent: #4493f8;
+            --bgColor-attention-muted: #bb800926;
+            --bgColor-default: #0d1117;
+            --bgColor-muted: #151b23;
+            --bgColor-neutral-muted: #656c7633;
+            --borderColor-accent-emphasis: #1f6feb;
+            --borderColor-attention-emphasis: #9e6a03;
+            --borderColor-danger-emphasis: #da3633;
+            --borderColor-default: #3d444d;
+            --borderColor-done-emphasis: #8957e5;
+            --borderColor-success-emphasis: #238636;
+            --borderColor-muted: #3d444db3;
+            --borderColor-neutral-muted: #3d444db3;
+            --color-prettylights-syntax-brackethighlighter-angle: #9198a1;
+            --color-prettylights-syntax-brackethighlighter-unmatched: #f85149;
+            --color-prettylights-syntax-carriage-return-bg: #b62324;
+            --color-prettylights-syntax-carriage-return-text: #f0f6fc;
+            --color-prettylights-syntax-comment: #9198a1;
+            --color-prettylights-syntax-constant: #79c0ff;
+            --color-prettylights-syntax-constant-other-reference-link: #a5d6ff;
+            --color-prettylights-syntax-entity: #d2a8ff;
+            --color-prettylights-syntax-entity-tag: #7ee787;
+            --color-prettylights-syntax-invalid-illegal-bg: rgba(248, 81, 73, 0.15);
+            --color-prettylights-syntax-invalid-illegal-text: #f85149;
+            --color-prettylights-syntax-keyword: #ff7b72;
+            --color-prettylights-syntax-markup-bold: #f0f6fc;
+            --color-prettylights-syntax-markup-changed-bg: #5a1e02;
+            --color-prettylights-syntax-markup-changed-text: #ffdfb6;
+            --color-prettylights-syntax-markup-deleted-bg: #67060c;
+            --color-prettylights-syntax-markup-deleted-text: #ffdcd7;
+            --color-prettylights-syntax-markup-heading: #1f6feb;
+            --color-prettylights-syntax-markup-ignored-bg: #1158c7;
+            --color-prettylights-syntax-markup-ignored-text: #f0f6fc;
+            --color-prettylights-syntax-markup-inserted-bg: #033a16;
+            --color-prettylights-syntax-markup-inserted-text: #aff5b4;
+            --color-prettylights-syntax-markup-italic: #f0f6fc;
+            --color-prettylights-syntax-markup-list: #f2cc60;
+            --color-prettylights-syntax-meta-diff-range: #d2a8ff;
+            --color-prettylights-syntax-storage-modifier-import: #f0f6fc;
+            --color-prettylights-syntax-string: #a5d6ff;
+            --color-prettylights-syntax-string-regexp: #7ee787;
+            --color-prettylights-syntax-sublimelinter-gutter-mark: #3d444d;
+            --color-prettylights-syntax-variable: #ffa657;
+            --fgColor-attention: #d29922;
+            --fgColor-danger: #f85149;
+            --fgColor-default: #f0f6fc;
+            --fgColor-done: #ab7df8;
+            --fgColor-muted: #9198a1;
+            --fgColor-success: #3fb950;
+            --focus-outlineColor: #1f6feb;
         }
 
         .markdown-preview-error {
@@ -1414,6 +1428,17 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         void this.refreshRootDirectory()
     }
 
+    uploadToCurrentDirectory (): void {
+        void this.uploadFilesToDirectory(this.currentDir)
+    }
+
+    downloadCurrentFile (): void {
+        if (!this.path) {
+            return
+        }
+        void this.downloadRemoteFile(this.path, this.name ?? this.path.split(/[\\/]/).pop() ?? 'download')
+    }
+
     async refreshNode (item: SFTPFileItem): Promise<void> {
         if (!item.isDirectory) {
             return
@@ -1533,6 +1558,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             })
             menu.push({ type: 'separator' })
             menu.push({
+                label: 'Upload Files Here',
+                click: () => this.uploadFilesToDirectory(item.fullPath),
+            })
+            menu.push({ type: 'separator' })
+            menu.push({
                 label: 'New File',
                 click: () => this.startCreate(item, 'file'),
             })
@@ -1554,6 +1584,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 label: 'Reload from Remote',
                 click: () => this.reloadFile(item),
                 enabled: item.fullPath === this.path,
+            })
+            menu.push({
+                label: 'Download',
+                click: () => this.downloadRemoteFile(item.fullPath, item.name),
             })
             menu.push({ type: 'separator' })
         }
@@ -1581,6 +1615,16 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.cancelEdit()
 
         this.platform.popupContextMenu([
+            {
+                label: 'Upload Files Here',
+                click: () => this.uploadToCurrentDirectory(),
+            },
+            {
+                label: 'Download Current File',
+                click: () => this.downloadCurrentFile(),
+                enabled: !!this.path,
+            },
+            { type: 'separator' },
             {
                 label: 'New File',
                 click: () => this.startCreateInCurrentDir('file'),
@@ -2422,6 +2466,29 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
+    private getStoredLocalTransferDir (): string {
+        try {
+            return localStorage.getItem('tabby-mingze-online-editor.localTransferDir') ?? ''
+        } catch {
+            return ''
+        }
+    }
+
+    private storeLocalTransferDir (filePath: string): void {
+        const localPath = `${filePath ?? ''}`.trim()
+        if (!localPath) {
+            return
+        }
+
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path')
+            localStorage.setItem('tabby-mingze-online-editor.localTransferDir', path.dirname(localPath))
+        } catch {
+            // ignore
+        }
+    }
+
     private getStoredTranslationSettings (): TranslationConfig {
         const fallback = getDefaultTranslationConfig()
 
@@ -2854,6 +2921,232 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.bomOffset = prev.bomOffset
             this.bomBytes = prev.bomBytes
             this.bomEncoding = prev.bomEncoding
+        }
+    }
+
+    private async uploadFilesToDirectory (dirPath: string): Promise<void> {
+        if (this.saving || this.loading) {
+            this.notifications.notice('Wait for the current file action to finish')
+            return
+        }
+
+        const targetDir = this.normalizeRemotePath(dirPath)
+
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const fs = require('fs')
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path')
+
+            const localPaths = await this.pickLocalFilesForUpload(targetDir)
+            if (!localPaths.length) {
+                return
+            }
+
+            const uploads: Array<{
+                localPath: string
+                name: string
+                remotePath: string
+                existingMode: number|null
+                wasExisting: boolean
+            }> = []
+
+            for (const localPath of localPaths) {
+                const name = path.basename(localPath)
+                const remotePath = this.joinRemotePath(targetDir, name)
+                const remoteStat = await this.getRemotePathStat(remotePath)
+
+                if (remoteStat?.isDirectory) {
+                    throw new Error(`"${name}" already exists as a folder on the remote host`)
+                }
+
+                uploads.push({
+                    localPath,
+                    name,
+                    remotePath,
+                    existingMode: remoteStat?.mode ?? null,
+                    wasExisting: !!remoteStat,
+                })
+            }
+
+            const touchesCurrentFile = uploads.some(upload => upload.remotePath === this.path)
+            if (touchesCurrentFile && this.diffMode) {
+                this.notifications.notice('Resolve the conflict first')
+                return
+            }
+
+            if (touchesCurrentFile && this.dirty) {
+                const result = await this.platform.showMessageBox({
+                    type: 'warning',
+                    message: 'Uploading will overwrite the currently open file and discard unsaved changes.',
+                    buttons: ['Upload', 'Cancel'],
+                    defaultId: 1,
+                    cancelId: 1,
+                })
+
+                if (result.response !== 0) {
+                    return
+                }
+            }
+
+            const existingNames = uploads.filter(upload => upload.wasExisting).map(upload => upload.name)
+            if (existingNames.length) {
+                const listedNames = existingNames.slice(0, 3).join(', ')
+                const extraCount = existingNames.length - Math.min(existingNames.length, 3)
+                const detail = extraCount > 0 ? `${listedNames} and ${extraCount} more` : listedNames
+                const result = await this.platform.showMessageBox({
+                    type: 'warning',
+                    message: `Overwrite ${existingNames.length} existing remote file${existingNames.length === 1 ? '' : 's'}?`,
+                    detail,
+                    buttons: ['Overwrite', 'Cancel'],
+                    defaultId: 1,
+                    cancelId: 1,
+                })
+
+                if (result.response !== 0) {
+                    return
+                }
+            }
+
+            let currentFileBuffer: Buffer|null = null
+            let successCount = 0
+            const failures: string[] = []
+
+            for (const upload of uploads) {
+                try {
+                    const buffer = Buffer.from(await fs.promises.readFile(upload.localPath))
+                    await this.writeRemoteFileBufferAt(upload.remotePath, buffer, upload.existingMode)
+                    successCount++
+                    if (upload.remotePath === this.path) {
+                        currentFileBuffer = buffer
+                    }
+                } catch (e: any) {
+                    failures.push(`${upload.name}: ${e?.message ?? 'Upload failed'}`)
+                }
+            }
+
+            if (successCount > 0) {
+                await this.refreshDirectoryBranch(targetDir)
+                if (currentFileBuffer) {
+                    await this.reloadOpenFileAfterUpload(currentFileBuffer)
+                }
+            }
+
+            if (!failures.length) {
+                this.notifications.notice(`Uploaded ${successCount} file${successCount === 1 ? '' : 's'}`)
+                return
+            }
+
+            const preview = failures.slice(0, 2).join('; ')
+            const suffix = failures.length > 2 ? `; +${failures.length - 2} more` : ''
+            if (successCount > 0) {
+                this.notifications.error(`Uploaded ${successCount} file${successCount === 1 ? '' : 's'}, but some uploads failed: ${preview}${suffix}`)
+            } else {
+                this.notifications.error(preview + suffix)
+            }
+        } catch (e: any) {
+            this.notifications.error(e?.message ?? 'Upload failed')
+        }
+    }
+
+    private async downloadRemoteFile (remotePath: string, suggestedName: string): Promise<void> {
+        const normalizedPath = this.normalizeRemotePath(remotePath)
+
+        try {
+            const localPath = await this.pickLocalPathForDownload(normalizedPath, suggestedName)
+            if (!localPath) {
+                return
+            }
+
+            await this.copyRemoteFileToLocal(normalizedPath, localPath)
+            this.notifications.notice(`Downloaded ${suggestedName}`)
+        } catch (e: any) {
+            this.notifications.error(e?.message ?? 'Download failed')
+        }
+    }
+
+    private async refreshDirectoryBranch (dirPath: string): Promise<void> {
+        const targetDir = this.normalizeRemotePath(dirPath)
+        if (targetDir === this.currentDir) {
+            await this.refreshRootDirectory()
+            return
+        }
+
+        const item = this.findTreeItem(this.dirContents, targetDir)
+        if (item) {
+            await this.refreshNode(item)
+        }
+    }
+
+    private async reloadOpenFileAfterUpload (buffer: Buffer): Promise<void> {
+        this.closeTranslationPopover()
+        this.loading = true
+        this.openError = null
+        this.diffMode = false
+        this.disposeDiffEditor()
+
+        try {
+            const stat = await this.getRemoteStat().catch(() => ({ mtime: null, size: buffer.length }))
+            const fileSize = stat.size ?? buffer.length
+
+            this.remoteMtime = stat.mtime
+            this.size = fileSize
+            this.readOnlyLargeFile = fileSize > LARGE_FILE_READONLY_SIZE
+            this.forceOpenBinary = false
+            this.dirty = false
+
+            if (fileSize > LARGE_FILE_REJECT_SIZE) {
+                this.disposePdfPreview()
+                this.openError = `This file is too large to open (${formatBytes(fileSize)})`
+                this.status = 'Too large'
+                this.loadedBuffer = buffer
+                return
+            }
+
+            await this.applyLoadedBuffer(buffer)
+            this.dirty = false
+        } catch (e: any) {
+            this.status = 'Reload failed'
+            this.notifications.error(e?.message ?? 'Failed to reload uploaded file')
+        } finally {
+            this.loading = false
+            this.safeDetectChanges()
+        }
+    }
+
+    private async copyRemoteFileToLocal (remotePath: string, localPath: string): Promise<void> {
+        const sftp: any = await this.getSftp()
+        const russh = getRussh()
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const fs = require('fs')
+
+        const tempPath = `${localPath}.tabby-online-editor-download`
+        const handle = await sftp.open(remotePath, russh.OPEN_READ)
+        let localHandle: any = null
+
+        try {
+            localHandle = await fs.promises.open(tempPath, 'w')
+
+            while (true) {
+                const chunk = await handle.read()
+                if (!chunk.length) {
+                    break
+                }
+
+                const buffer = Buffer.from(chunk)
+                await localHandle.write(buffer, 0, buffer.length, null)
+            }
+
+            await localHandle.close()
+            localHandle = null
+            await fs.promises.unlink(localPath).catch(() => null)
+            await fs.promises.rename(tempPath, localPath)
+        } catch (e) {
+            await localHandle?.close?.().catch(() => null)
+            await fs.promises.unlink(tempPath).catch(() => null)
+            throw e
+        } finally {
+            await handle.close().catch(() => null)
         }
     }
 
@@ -5044,6 +5337,84 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
+    private getElectronDialog (): any|null {
+        try {
+            const remote = require('@electron/remote')
+            if (remote?.dialog) {
+                return remote.dialog
+            }
+        } catch {
+            // ignore
+        }
+
+        try {
+            const electron = require('electron')
+            if (electron?.remote?.dialog) {
+                return electron.remote.dialog
+            }
+        } catch {
+            // ignore
+        }
+
+        return null
+    }
+
+    private buildDefaultLocalTransferPath (name: string): string {
+        const fileName = (name ?? '').trim() || 'download'
+        const baseDir = this.getStoredLocalTransferDir()
+        if (!baseDir) {
+            return fileName
+        }
+
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const path = require('path')
+            return path.join(baseDir, fileName)
+        } catch {
+            return fileName
+        }
+    }
+
+    private async pickLocalFilesForUpload (targetDir: string): Promise<string[]> {
+        const dialog = this.getElectronDialog()
+        if (!dialog?.showOpenDialog) {
+            throw new Error('Local file picker is not available in this Tabby build')
+        }
+
+        const result = await dialog.showOpenDialog({
+            title: `Upload to ${this.normalizeRemotePath(targetDir)}`,
+            defaultPath: this.getStoredLocalTransferDir() || undefined,
+            properties: ['openFile', 'multiSelections'],
+        })
+
+        const filePaths = (result?.filePaths ?? []).filter((x: any) => typeof x === 'string' && x)
+        if (!filePaths.length || result?.canceled) {
+            return []
+        }
+
+        this.storeLocalTransferDir(filePaths[0])
+        return filePaths
+    }
+
+    private async pickLocalPathForDownload (remotePath: string, suggestedName: string): Promise<string|null> {
+        const dialog = this.getElectronDialog()
+        if (!dialog?.showSaveDialog) {
+            throw new Error('Local save dialog is not available in this Tabby build')
+        }
+
+        const result = await dialog.showSaveDialog({
+            title: `Download ${this.normalizeRemotePath(remotePath)}`,
+            defaultPath: this.buildDefaultLocalTransferPath(suggestedName),
+        })
+
+        if (result?.canceled || !result?.filePath) {
+            return null
+        }
+
+        this.storeLocalTransferDir(result.filePath)
+        return result.filePath
+    }
+
     private async getSftp (): Promise<SFTPSession> {
         if (this.sftp) {
             return this.sftp
@@ -5178,6 +5549,26 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return [encoding]
     }
 
+    private async getRemotePathStat (remotePath: string): Promise<{ isDirectory: boolean, mode: number|null, size: number|null }|null> {
+        const sftp: any = await this.getSftp()
+        if (!sftp?.stat) {
+            return null
+        }
+
+        try {
+            const stat: any = await sftp.stat(remotePath)
+            const mode = typeof stat?.mode === 'number' ? stat.mode : null
+            const size = typeof stat?.size === 'number' ? stat.size : null
+            const isDirectory = typeof stat?.isDirectory === 'boolean'
+                ? stat.isDirectory
+                : ((mode ?? 0) & 0o170000) === 0o040000
+
+            return { isDirectory, mode, size }
+        } catch {
+            return null
+        }
+    }
+
     private async getRemoteStat (): Promise<{ mtime: number|null, size: number|null }> {
         const sftp: any = await this.getSftp()
         if (!sftp?.stat) {
@@ -5206,10 +5597,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     private async readRemoteFileBuffer (): Promise<Buffer> {
+        return this.readRemoteFileBufferAt(this.path, { maxBytes: LARGE_FILE_REJECT_SIZE })
+    }
+
+    private async readRemoteFileBufferAt (remotePath: string, options?: { maxBytes?: number }): Promise<Buffer> {
         const sftp = await this.getSftp()
         const russh = getRussh()
 
-        const handle = await sftp.open(this.path, russh.OPEN_READ)
+        const handle = await sftp.open(remotePath, russh.OPEN_READ)
         try {
             const chunks: Buffer[] = []
             let total = 0
@@ -5221,7 +5616,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 const buf = Buffer.from(chunk)
                 chunks.push(buf)
                 total += buf.length
-                if (total > LARGE_FILE_REJECT_SIZE) {
+                if (options?.maxBytes && total > options.maxBytes) {
                     throw new Error('File is too large to open')
                 }
             }
@@ -5232,10 +5627,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     private async writeRemoteFileBuffer (contents: Buffer): Promise<void> {
+        await this.writeRemoteFileBufferAt(this.path, contents, this.mode ?? null)
+    }
+
+    private async writeRemoteFileBufferAt (remotePath: string, contents: Buffer, mode?: number|null): Promise<void> {
         const sftp = await this.getSftp()
         const russh = getRussh()
 
-        const tempPath = `${this.path}.tabby-online-edit`
+        const tempPath = `${remotePath}.tabby-online-edit`
         let handle: any = null
         try {
             handle = await sftp.open(tempPath, russh.OPEN_WRITE | russh.OPEN_CREATE)
@@ -5243,10 +5642,10 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             await handle.close()
             handle = null
 
-            await sftp.unlink(this.path).catch(() => null)
-            await sftp.rename(tempPath, this.path)
-            if (this.mode) {
-                await sftp.chmod(this.path, this.mode)
+            await sftp.unlink(remotePath).catch(() => null)
+            await sftp.rename(tempPath, remotePath)
+            if (mode !== null && mode !== undefined) {
+                await sftp.chmod(remotePath, mode)
             }
         } catch (e) {
             await sftp.unlink(tempPath).catch(() => null)

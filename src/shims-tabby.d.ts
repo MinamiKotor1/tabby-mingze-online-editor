@@ -24,6 +24,7 @@ declare module 'tabby-core' {
         click?: () => void
         type?: string
         checked?: boolean
+        enabled?: boolean
         commandLabel?: string
         sublabel?: string
     }

@@ -133,6 +133,10 @@
                         i.fas.fa-level-up-alt
                     button.btn.btn-sm.btn-link.p-0.ms-1((click)='refreshDirectory()', [disabled]='loadingDir', title='Refresh')
                         i.fas.fa-sync-alt([class.fa-spin]='loadingDir')
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='uploadToCurrentDirectory()', [disabled]='loadingDir || loading || saving', title='Upload files here')
+                        i.fas.fa-upload.fa-cloud-arrow-up
+                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='downloadCurrentFile()', [disabled]='!path || loading || saving', title='Download current file')
+                        i.fas.fa-download.fa-cloud-arrow-down
                     button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='Hide')
                         i.fas.fa-xmark.fa-times
 
@@ -271,7 +275,10 @@
                     (mouseup)='onMarkdownPreviewMouseUp()',
                     (keyup)='onMarkdownPreviewKeyUp()'
                 )
-                    .markdown-preview([innerHTML]='markdownPreviewHtml')
+                    .markdown-preview.markdown-body(
+                        [attr.data-theme]='darkMode ? "dark" : "light"',
+                        [innerHTML]='markdownPreviewHtml'
+                    )
 
                 .pdf-preview-shell.w-100.h-100(
                     *ngIf='showPdfPreview()',

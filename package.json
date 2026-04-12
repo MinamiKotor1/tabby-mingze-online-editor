@@ -19,8 +19,14 @@
   "author": "Mingze",
   "license": "MIT",
   "dependencies": {
+    "github-markdown-css": "^5.9.0",
     "monaco-editor": "^0.47.0",
-    "pdfjs-dist": "3.11.174"
+    "pdfjs-dist": "3.11.174",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
