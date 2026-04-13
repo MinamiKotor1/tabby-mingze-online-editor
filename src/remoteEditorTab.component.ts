@@ -601,6 +601,7 @@ function luminance (rgb: RGB): number {
         }
 
         .sidebar {
+            flex-shrink: 0;
             min-width: 150px;
             max-width: 400px;
             position: relative;
