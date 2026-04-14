@@ -6,14 +6,18 @@ declare module '@angular/core' {
     export const Component: any
     export const NgModule: any
     export const ViewChild: any
-    export class Injector { get (token: any): any }
+    export class Injector { get<T> (token: any): T }
     export class ElementRef<T = any> { nativeElement: T }
     export class ChangeDetectorRef { detectChanges (): void }
 }
 
 declare module '@angular/platform-browser' {
+    export interface SafeHtml {
+        readonly __safeHtmlBrand: 'SafeHtml'
+    }
+
     export abstract class DomSanitizer {
-        bypassSecurityTrustHtml (value: string): any
+        bypassSecurityTrustHtml (value: string): SafeHtml
     }
 }
 

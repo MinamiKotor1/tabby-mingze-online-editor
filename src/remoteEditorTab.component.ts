@@ -28,6 +28,13 @@ require('./markdownPreviewMath.css')
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
 type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
+type SafeHtml = ReturnType<DomSanitizer['bypassSecurityTrustHtml']>
+
+type DomPurifySanitizer = (source: string, options: Record<string, unknown>) => string
+type DomPurifyModule = {
+    sanitize?: DomPurifySanitizer
+    default?: DomPurifySanitizer | { sanitize?: DomPurifySanitizer }
+}
 
 type TranslationSelectionSource = 'monaco' | 'markdown' | 'pdf'
 type TranslationPopoverTab = 'translate' | 'ask_ai'
@@ -140,7 +147,7 @@ function getMonaco (): Monaco {
     return require('monaco-editor/esm/vs/editor/editor.api')
 }
 
-function getDomPurify (): any {
+function getDomPurify (): DomPurifyModule {
     // Sanitize rendered HTML before binding it into the Angular template.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require('monaco-editor/esm/vs/base/browser/dompurify/dompurify')
@@ -338,7 +345,9 @@ function protectNonMathSingleDollarInlineSegments (value: string): string {
 function renderMarkdownPreview (text: string): string {
     try {
         const domPurifyModule = getDomPurify()
-        const sanitize = domPurifyModule?.sanitize ?? domPurifyModule?.default?.sanitize ?? domPurifyModule?.default
+        const defaultDomPurifyExport = domPurifyModule?.default
+        const sanitize = domPurifyModule?.sanitize ??
+            (typeof defaultDomPurifyExport === 'function' ? defaultDomPurifyExport : defaultDomPurifyExport?.sanitize)
 
         if (typeof sanitize !== 'function') {
             return `<pre>${escapeHtml(text)}</pre>`
@@ -350,11 +359,11 @@ function renderMarkdownPreview (text: string): string {
 
         return sanitize(rawHtml, {
             USE_PROFILES: { html: true, mathMl: true, svg: true },
-            FORBID_CONTENTS: ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'svg', 'template', 'thead', 'title', 'video', 'xmp'],
+            FORBID_CONTENTS: ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'template', 'thead', 'title', 'video', 'xmp'],
             ALLOW_UNKNOWN_PROTOCOLS: false,
         }) ?? ''
-    } catch (e: any) {
-        const detail = e?.message ?? 'Unknown error'
+    } catch (e: unknown) {
+        const detail = e instanceof Error ? e.message : 'Unknown error'
         return `
             <div class="markdown-preview-error">
                 <strong>Markdown render failed</strong>
@@ -1435,7 +1444,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     diffMode = false
 
     markdownPreview = false
-    markdownPreviewHtml: any = ''
+    markdownPreviewHtml: SafeHtml | '' = ''
 
     translationSettings = getDefaultTranslationConfig()
     translationSettingsDraft = getDefaultTranslationConfig()
@@ -1555,7 +1564,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private pdfOutlineLoadToken = 0
     private pdfPendingDestination: PdfOutlineExplicitDestination | null = null
 
-    private domSanitizer: DomSanitizer
+    private readonly domSanitizer: DomSanitizer
 
     constructor (
         injector: Injector,
