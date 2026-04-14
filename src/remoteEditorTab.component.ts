@@ -933,8 +933,7 @@ function luminance (rgb: RGB): number {
             box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
         }
 
-        .markdown-preview.markdown-body,
-        .markdown-preview.markdown-body * {
+        .markdown-preview.markdown-body {
             box-sizing: border-box;
             user-select: text;
             -webkit-user-select: text;
