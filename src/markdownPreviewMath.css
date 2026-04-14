@@ -3,3 +3,7 @@
     overflow-y: visible;
     padding: 0.25rem 0;
 }
+
+.katex .vlist::before {
+    content: "\200b";
+}
