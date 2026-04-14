@@ -6,6 +6,7 @@ module.exports = (_env, argv = {}) => {
     ? 'production'
     : 'development'
   const isProduction = mode === 'production'
+  const katexFontPath = path.resolve(__dirname, 'node_modules/katex/dist/fonts')
 
   return {
     target: 'node',
@@ -16,6 +17,7 @@ module.exports = (_env, argv = {}) => {
     output: {
       path: path.resolve(__dirname, 'dist'),
       filename: 'index.js',
+      clean: true,
       pathinfo: !isProduction,
       libraryTarget: 'umd',
       publicPath: '',
@@ -40,7 +42,17 @@ module.exports = (_env, argv = {}) => {
         },
         { test: /\.pug$/, use: ['apply-loader', 'pug-loader'] },
         { test: /\.css$/, use: ['style-loader', 'css-loader'] },
-        { test: /\.(woff2?|ttf)$/, type: 'asset/resource' },
+        {
+          test: /\.(woff2?|ttf)$/,
+          oneOf: [
+            {
+              include: katexFontPath,
+              // Keep KaTeX math fonts self-contained so injected CSS does not rely on runtime file:// font requests.
+              type: 'asset/inline',
+            },
+            { type: 'asset/resource' },
+          ],
+        },
       ],
     },
     externals: [
