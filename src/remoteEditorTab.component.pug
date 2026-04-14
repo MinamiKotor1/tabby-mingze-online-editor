@@ -125,22 +125,37 @@
         .d-flex.flex-grow-1.min-vh-0.min-h-0
             //- Sidebar / file tree
             .sidebar.border-end.d-flex.flex-column(*ngIf='sidebarVisible', [style.width.px]='sidebarWidth')
-                .sidebar-header.d-flex.align-items-center.p-2.border-bottom.gap-1
-                    i.fas.fa-folder-open.text-warning.me-1
-                    span.text-truncate.flex-grow-1.small {{currentDir}}
+                .sidebar-header.d-flex.flex-column.p-2.border-bottom.gap-1
+                    .d-flex.align-items-center.gap-1.w-100
+                        i.fas.me-1([class.fa-folder-open]='!showPdfOutlineTree()', [class.text-warning]='!showPdfOutlineTree()', [class.fa-list-ul]='showPdfOutlineTree()', [class.text-secondary]='showPdfOutlineTree()')
+                        span.text-truncate.flex-grow-1.small {{showPdfOutlineTree() ? 'PDF Outline' : currentDir}}
 
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='goUpDirectory()', [disabled]='loadingDir || !canGoUpDirectory()', title='Up')
-                        i.fas.fa-level-up-alt
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='refreshDirectory()', [disabled]='loadingDir', title='Refresh')
-                        i.fas.fa-sync-alt([class.fa-spin]='loadingDir')
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='uploadToCurrentDirectory()', [disabled]='loadingDir || loading || saving', title='Upload files here')
-                        i.fas.fa-upload.fa-cloud-arrow-up
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='downloadCurrentFile()', [disabled]='!path || loading || saving', title='Download current file')
-                        i.fas.fa-download.fa-cloud-arrow-down
-                    button.btn.btn-sm.btn-link.p-0.ms-1((click)='toggleSidebar()', title='Hide')
-                        i.fas.fa-xmark.fa-times
+                        button.btn.btn-sm.btn-link.p-0.ms-1(*ngIf='!showPdfOutlineTree()', type='button', (click)='goUpDirectory()', [disabled]='loadingDir || !canGoUpDirectory()', title='Up')
+                            i.fas.fa-level-up-alt
+                        button.btn.btn-sm.btn-link.p-0.ms-1(*ngIf='!showPdfOutlineTree()', type='button', (click)='refreshDirectory()', [disabled]='loadingDir', title='Refresh')
+                            i.fas.fa-sync-alt([class.fa-spin]='loadingDir')
+                        button.btn.btn-sm.btn-link.p-0.ms-1(*ngIf='!showPdfOutlineTree()', type='button', (click)='uploadToCurrentDirectory()', [disabled]='loadingDir || loading || saving', title='Upload files here')
+                            i.fas.fa-upload.fa-cloud-arrow-up
+                        button.btn.btn-sm.btn-link.p-0.ms-1(*ngIf='!showPdfOutlineTree()', type='button', (click)='downloadCurrentFile()', [disabled]='!path || loading || saving', title='Download current file')
+                            i.fas.fa-download.fa-cloud-arrow-down
+                        button.btn.btn-sm.btn-link.p-0.ms-1(type='button', (click)='toggleSidebar()', title='Hide')
+                            i.fas.fa-xmark.fa-times
 
-                .sidebar-tree.flex-grow-1.overflow-auto((contextmenu)='onSidebarContextMenu($event)')
+                    .btn-group.btn-group-sm.w-100(*ngIf='showPdfPreview()', role='group')
+                        button.btn.text-nowrap.flex-fill(
+                            type='button',
+                            [class.btn-primary]='pdfSidebarMode === "files"',
+                            [class.btn-outline-secondary]='pdfSidebarMode !== "files"',
+                            (click)='setPdfSidebarMode("files")'
+                        ) Files
+                        button.btn.text-nowrap.flex-fill(
+                            type='button',
+                            [class.btn-primary]='pdfSidebarMode === "outline"',
+                            [class.btn-outline-secondary]='pdfSidebarMode !== "outline"',
+                            (click)='setPdfSidebarMode("outline")'
+                        ) Outline
+
+                .sidebar-tree.flex-grow-1.overflow-auto(*ngIf='showFileSidebarTree()', (contextmenu)='onSidebarContextMenu($event)')
                     .tree-item.d-flex.align-items-center.py-1.pe-2(*ngIf='editingParentDir === currentDir && !editingTreeItem', [style.padding-left.px]='8')
                         i.fas.me-2([class.fa-folder.text-warning]='editingNewType === "folder"', [class.fa-file]='editingNewType !== "folder"')
                         input.tree-edit-input.flex-grow-1(type='text', [value]='editingTreeName', (input)='editingTreeName = $event.target.value', (keydown.enter)='commitEdit(); $event.preventDefault()', (keydown.escape)='cancelEdit(); $event.stopPropagation()', (blur)='onEditBlur()', (click)='$event.stopPropagation()')
@@ -150,6 +165,14 @@
 
                     ng-container(*ngFor='let item of dirContents')
                         ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: item, depth: 0}')
+
+                .sidebar-tree.flex-grow-1.overflow-auto(*ngIf='showPdfOutlineTree()')
+                    .text-muted.small.p-2(*ngIf='pdfOutlineLoading') Loading outline...
+                    .text-danger.small.p-2(*ngIf='pdfOutlineError && !pdfOutlineLoading') {{pdfOutlineError}}
+                    .text-muted.small.p-2(*ngIf='!pdfOutlineLoading && !pdfOutlineError && (!pdfOutlineItems || !pdfOutlineItems.length)') No outline available
+
+                    ng-container(*ngFor='let item of pdfOutlineItems')
+                        ng-container(*ngTemplateOutlet='pdfOutlineTreeItem; context: {item: item, depth: 0}')
 
                 .sidebar-resizer((mousedown)='startResize($event)')
 
@@ -280,7 +303,7 @@
                         [innerHTML]='markdownPreviewHtml'
                     )
 
-                .pdf-preview-shell.w-100.h-100(
+                .pdf-preview-shell.w-100.h-100(#pdfPreviewShell,
                     *ngIf='showPdfPreview()',
                     tabindex='0',
                     (mousedown)='onPdfPreviewMouseDown($event)',
@@ -381,3 +404,21 @@
                 ng-container(*ngIf='item.children')
                     ng-container(*ngFor='let child of item.children')
                         ng-container(*ngTemplateOutlet='fileTreeItem; context: {item: child, depth: depth + 1}')
+
+        ng-template(#pdfOutlineTreeItem, let-item='item', let-depth='depth')
+            .tree-item.d-flex.align-items-center.py-1.pe-2(
+                [class.active]='isPdfOutlineItemActive(item)',
+                [class.cursor-pointer]='item.clickable || item.items.length > 0',
+                [style.padding-left.px]='depth * 16 + 8',
+                (click)='onPdfOutlineItemClick(item)'
+            )
+                button.btn.btn-sm.btn-link.p-0.me-2.text-reset(*ngIf='item.items.length', type='button', (click)='togglePdfOutlineItem(item); $event.stopPropagation()', [title]='item.expanded ? "Collapse" : "Expand"')
+                    i.fas([class.fa-chevron-right]='!item.expanded', [class.fa-chevron-down]='item.expanded')
+                i.fas.fa-chevron-right.me-2.opacity-0(*ngIf='!item.items.length')
+                i.fas.fa-up-right-from-square.me-2(*ngIf='item.url && item.pageNumber === null')
+                i.fas.fa-list-ul.me-2(*ngIf='item.pageNumber !== null')
+                span.text-truncate.flex-grow-1 {{item.title}}
+
+            ng-container(*ngIf='item.expanded && item.items.length')
+                ng-container(*ngFor='let child of item.items')
+                    ng-container(*ngTemplateOutlet='pdfOutlineTreeItem; context: {item: child, depth: depth + 1}')

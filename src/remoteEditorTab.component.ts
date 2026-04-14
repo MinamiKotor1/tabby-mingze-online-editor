@@ -49,6 +49,84 @@ export interface SFTPFileItem {
     loadError?: string|null
 }
 
+type PdfTextContentSource = Parameters<PdfJs['renderTextLayer']>[0]['textContentSource']
+type PdfViewportLike = Parameters<PdfJs['renderTextLayer']>[0]['viewport']
+type PdfSidebarMode = 'files' | 'outline'
+
+interface PdfPageReference {
+    num: number
+    gen: number
+}
+
+type PdfOutlineExplicitDestination = unknown[]
+type PdfOutlineDestination = string | PdfOutlineExplicitDestination | null
+
+type PdfOutlineResolvedTarget = {
+    explicitDestination: PdfOutlineExplicitDestination | null
+    pageNumber: number | null
+}
+
+type PdfOutlineViewportOffset = {
+    left: number
+    top: number
+}
+
+interface PdfOutlineDestinationConfig {
+    name?: string | null
+}
+
+interface PdfOutlineSourceItem {
+    title?: string | null
+    dest?: PdfOutlineDestination
+    url?: string | null
+    items?: PdfOutlineSourceItem[] | null
+}
+
+interface PdfOutlineItem {
+    id: string
+    title: string
+    pageNumber: number | null
+    explicitDestination: PdfOutlineExplicitDestination | null
+    url: string | null
+    items: PdfOutlineItem[]
+    expanded: boolean
+    clickable: boolean
+}
+
+type PdfLoadingTaskLike = {
+    promise: Promise<PdfDocumentLike>
+    destroy?: () => unknown
+}
+
+type PdfCancellableTaskLike = {
+    promise: Promise<unknown>
+    cancel?: () => unknown
+}
+
+interface PdfPageLike {
+    getViewport (params: { scale: number }): PdfViewportLike
+    render (params: {
+        canvasContext: CanvasRenderingContext2D
+        viewport: PdfViewportLike
+        transform?: number[]
+    }): PdfCancellableTaskLike
+    streamTextContent (params: {
+        includeMarkedContent: boolean
+        disableNormalization: boolean
+    }): PdfTextContentSource
+}
+
+interface PdfDocumentLike {
+    numPages: number
+    getPage (pageNumber: number): Promise<PdfPageLike>
+    getOutline (): Promise<PdfOutlineSourceItem[] | null>
+    getDestination (destinationId: string): Promise<PdfOutlineExplicitDestination | null>
+    cachedPageNumber?: (ref: PdfPageReference) => number | null | undefined
+    getPageIndex (ref: PdfPageReference): Promise<number>
+    cleanup?: () => unknown
+    destroy?: () => unknown
+}
+
 function getMonaco (): Monaco {
     // Lazy-load so publicPath is already set.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -1222,6 +1300,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     pdfCurrentPage = 1
     pdfPageInput = '1'
     pdfZoom = 1
+    pdfSidebarMode: PdfSidebarMode = 'files'
+    pdfOutlineLoading = false
+    pdfOutlineError = ''
+    pdfOutlineItems: PdfOutlineItem[] = []
+    pdfActiveOutlineItemId: string | null = null
 
     // Sidebar file tree
     sidebarVisible = true
@@ -1239,6 +1322,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     @ViewChild('editorHost', { static: true }) editorHost?: ElementRef<HTMLElement>
     @ViewChild('contentArea', { static: true }) contentArea?: ElementRef<HTMLElement>
+    @ViewChild('pdfPreviewShell') pdfPreviewShell?: ElementRef<HTMLElement>
     @ViewChild('pdfCanvas') pdfCanvas?: ElementRef<HTMLCanvasElement>
     @ViewChild('pdfTextLayer') pdfTextLayer?: ElementRef<HTMLElement>
     @ViewChild('pdfPreviewPage') pdfPreviewPage?: ElementRef<HTMLElement>
@@ -1291,12 +1375,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private translationPopoverResizeStartY = 0
     private translationPopoverResizeStartWidth = 0
     private translationPopoverResizeStartHeight = 0
-    private pdfLoadingTask: any | null = null
-    private pdfDocument: any | null = null
-    private pdfRenderTask: any | null = null
-    private pdfTextLayerRenderTask: any | null = null
+    private pdfLoadingTask: PdfLoadingTaskLike | null = null
+    private pdfDocument: PdfDocumentLike | null = null
+    private pdfRenderTask: PdfCancellableTaskLike | null = null
+    private pdfTextLayerRenderTask: PdfCancellableTaskLike | null = null
     private pdfRenderTimer: number | null = null
     private pdfRenderToken = 0
+    private pdfOutlineLoadToken = 0
+    private pdfPendingDestination: PdfOutlineExplicitDestination | null = null
 
     constructor (
         injector: Injector,
@@ -1414,6 +1500,50 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     toggleSidebar (): void {
         this.sidebarVisible = !this.sidebarVisible
         this.storeSidebarVisible(this.sidebarVisible)
+    }
+
+    showFileSidebarTree (): boolean {
+        return !this.showPdfPreview() || this.pdfSidebarMode === 'files'
+    }
+
+    showPdfOutlineTree (): boolean {
+        return this.showPdfPreview() && this.pdfSidebarMode === 'outline'
+    }
+
+    setPdfSidebarMode (mode: PdfSidebarMode): void {
+        if (this.pdfSidebarMode === mode) {
+            return
+        }
+
+        this.pdfSidebarMode = mode
+        this.safeDetectChanges()
+    }
+
+    togglePdfOutlineItem (item: PdfOutlineItem): void {
+        if (!item.items.length) {
+            return
+        }
+
+        item.expanded = !item.expanded
+        this.safeDetectChanges()
+    }
+
+    onPdfOutlineItemClick (item: PdfOutlineItem): void {
+        if (item.pageNumber !== null) {
+            this.goToPdfPage(item.pageNumber, item.explicitDestination)
+            return
+        }
+
+        if (item.url) {
+            this.openSupportedExternalLink(item.url, 'Unsupported PDF outline link')
+            return
+        }
+
+        this.togglePdfOutlineItem(item)
+    }
+
+    isPdfOutlineItemActive (item: PdfOutlineItem): boolean {
+        return this.pdfActiveOutlineItemId === item.id
     }
 
     canGoUpDirectory (): boolean {
@@ -2206,16 +2336,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         event.preventDefault()
         event.stopPropagation()
 
-        if (/^\/\//.test(href)) {
-            this.openExternalLink(`https:${href}`)
-            return
-        }
-        if (/^(https?:|mailto:|tel:)/i.test(href)) {
-            this.openExternalLink(href)
-            return
-        }
-
-        this.notifications.notice('Relative Markdown links are not supported yet')
+        this.openSupportedExternalLink(href, 'Relative Markdown links are not supported yet')
     }
 
     onMarkdownPreviewMouseUp (): void {
@@ -3230,10 +3351,11 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.pdfCurrentPage = 1
         this.pdfPageInput = '1'
         this.pdfZoom = 1
+        this.resetPdfOutlineState()
         this.status = 'Loading PDF...'
         this.safeDetectChanges()
 
-        let loadingTask: any = null
+        let loadingTask: PdfLoadingTaskLike | null = null
         try {
             const pdfjs = getPdfJs()
             loadingTask = pdfjs.getDocument({
@@ -3255,9 +3377,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
 
+            const outlineLoadToken = ++this.pdfOutlineLoadToken
+            this.pdfOutlineLoading = true
             this.updatePdfStatus()
             this.safeDetectChanges()
             this.schedulePdfRender()
+            void this.loadPdfOutline(documentProxy, outlineLoadToken)
         } catch (error: any) {
             if (!this.isPdf || this.pdfLoadingTask !== loadingTask) {
                 return
@@ -3281,6 +3406,302 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.pdfRenderTimer = null
             void this.renderCurrentPdfPage()
         }, 0)
+    }
+
+    private resetPdfOutlineState (): void {
+        this.pdfSidebarMode = 'files'
+        this.pdfOutlineLoading = false
+        this.pdfOutlineError = ''
+        this.pdfOutlineItems = []
+        this.pdfActiveOutlineItemId = null
+    }
+
+    private isPdfOutlineLoadActive (documentProxy: PdfDocumentLike, loadToken: number): boolean {
+        return this.isPdf && this.pdfDocument === documentProxy && this.pdfOutlineLoadToken === loadToken
+    }
+
+    private async loadPdfOutline (documentProxy: PdfDocumentLike, loadToken: number): Promise<void> {
+        this.pdfOutlineError = ''
+        this.pdfOutlineItems = []
+        this.pdfActiveOutlineItemId = null
+        this.safeDetectChanges()
+
+        try {
+            const outline = await documentProxy.getOutline()
+            if (!this.isPdfOutlineLoadActive(documentProxy, loadToken)) {
+                return
+            }
+
+            const items = Array.isArray(outline)
+                ? await this.buildPdfOutlineItems(documentProxy, outline, 'outline')
+                : []
+            if (!this.isPdfOutlineLoadActive(documentProxy, loadToken)) {
+                return
+            }
+
+            this.pdfOutlineItems = items
+            this.updateActivePdfOutlineItem()
+        } catch (error) {
+            if (!this.isPdfOutlineLoadActive(documentProxy, loadToken)) {
+                return
+            }
+
+            this.pdfOutlineItems = []
+            this.pdfActiveOutlineItemId = null
+            this.pdfOutlineError =
+                typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
+                    ? error.message
+                    : 'Failed to load PDF outline'
+        } finally {
+            if (!this.isPdfOutlineLoadActive(documentProxy, loadToken)) {
+                return
+            }
+
+            this.pdfOutlineLoading = false
+            this.safeDetectChanges()
+        }
+    }
+
+    private async buildPdfOutlineItems (
+        documentProxy: PdfDocumentLike,
+        sourceItems: PdfOutlineSourceItem[],
+        idPrefix: string,
+    ): Promise<PdfOutlineItem[]> {
+        return Promise.all(sourceItems.map(async (sourceItem, index) => {
+            const itemId = `${idPrefix}-${index}`
+            const items = Array.isArray(sourceItem.items)
+                ? await this.buildPdfOutlineItems(documentProxy, sourceItem.items, itemId)
+                : []
+            const target = await this.resolvePdfOutlineTarget(documentProxy, sourceItem.dest)
+            const url = typeof sourceItem.url === 'string' && sourceItem.url.trim() ? sourceItem.url.trim() : null
+
+            return {
+                id: itemId,
+                title: this.normalizePdfOutlineTitle(sourceItem.title),
+                pageNumber: target.pageNumber,
+                explicitDestination: target.explicitDestination,
+                url,
+                items,
+                expanded: items.length > 0,
+                clickable: target.pageNumber !== null || !!url,
+            }
+        }))
+    }
+
+    private async resolvePdfOutlineTarget (
+        documentProxy: PdfDocumentLike,
+        destination: PdfOutlineDestination | undefined,
+    ): Promise<PdfOutlineResolvedTarget> {
+        try {
+            let explicitDestination: PdfOutlineExplicitDestination | null = null
+            if (typeof destination === 'string') {
+                explicitDestination = await documentProxy.getDestination(destination)
+            } else if (Array.isArray(destination) && destination.length > 0) {
+                explicitDestination = destination
+            }
+
+            if (!explicitDestination?.length) {
+                return {
+                    explicitDestination: null,
+                    pageNumber: null,
+                }
+            }
+
+            const target = explicitDestination[0]
+            if (typeof target === 'number') {
+                return {
+                    explicitDestination,
+                    pageNumber: this.normalizePdfOutlinePageNumber(target + 1),
+                }
+            }
+            if (!this.isPdfPageReference(target)) {
+                return {
+                    explicitDestination,
+                    pageNumber: null,
+                }
+            }
+
+            const cachedPageNumber = documentProxy.cachedPageNumber?.(target)
+            if (typeof cachedPageNumber === 'number' && Number.isFinite(cachedPageNumber)) {
+                return {
+                    explicitDestination,
+                    pageNumber: this.normalizePdfOutlinePageNumber(cachedPageNumber),
+                }
+            }
+
+            const pageIndex = await documentProxy.getPageIndex(target)
+            return {
+                explicitDestination,
+                pageNumber: this.normalizePdfOutlinePageNumber(pageIndex + 1),
+            }
+        } catch {
+            return {
+                explicitDestination: null,
+                pageNumber: null,
+            }
+        }
+    }
+
+    private isPdfPageReference (value: unknown): value is PdfPageReference {
+        if (!value || typeof value !== 'object') {
+            return false
+        }
+
+        const candidate = value as { num?: unknown, gen?: unknown }
+        return typeof candidate.num === 'number' && typeof candidate.gen === 'number'
+    }
+
+    private normalizePdfOutlinePageNumber (pageNumber: number): number | null {
+        if (!Number.isFinite(pageNumber)) {
+            return null
+        }
+
+        const normalized = Math.round(pageNumber)
+        if (normalized < 1 || (this.pdfPageCount > 0 && normalized > this.pdfPageCount)) {
+            return null
+        }
+        return normalized
+    }
+
+    private normalizePdfOutlineTitle (title: string | null | undefined): string {
+        const normalized = `${title ?? ''}`.replace(/\s+/g, ' ').trim()
+        return normalized || 'Untitled'
+    }
+
+    private updateActivePdfOutlineItem (): void {
+        let activeItemId: string | null = null
+        this.walkPdfOutlineItems(this.pdfOutlineItems, item => {
+            if (item.pageNumber !== null && item.pageNumber <= this.pdfCurrentPage) {
+                activeItemId = item.id
+            }
+        })
+        this.pdfActiveOutlineItemId = activeItemId
+    }
+
+    private walkPdfOutlineItems (items: PdfOutlineItem[], visit: (item: PdfOutlineItem) => void): void {
+        for (const item of items) {
+            visit(item)
+            if (item.items.length) {
+                this.walkPdfOutlineItems(item.items, visit)
+            }
+        }
+    }
+
+    private applyPendingPdfDestinationScroll (viewport: PdfViewportLike): void {
+        const destination = this.pdfPendingDestination
+        if (!destination) {
+            return
+        }
+
+        if (this.scrollPdfPreviewToDestination(destination, viewport)) {
+            this.pdfPendingDestination = null
+        }
+    }
+
+    private async scrollToPendingPdfDestination (): Promise<void> {
+        const destination = this.pdfPendingDestination
+        if (!destination || !this.pdfDocument || !this.showPdfPreview()) {
+            return
+        }
+
+        try {
+            const page = await this.pdfDocument.getPage(this.pdfCurrentPage)
+            if (!this.showPdfPreview() || !this.pdfDocument || destination !== this.pdfPendingDestination) {
+                return
+            }
+
+            const viewport = page.getViewport({
+                scale: this.pdfZoom * PDF_CSS_UNITS,
+            })
+            if (this.scrollPdfPreviewToDestination(destination, viewport)) {
+                this.pdfPendingDestination = null
+            }
+        } catch {
+            if (destination === this.pdfPendingDestination) {
+                this.pdfPendingDestination = null
+            }
+        }
+    }
+
+    private scrollPdfPreviewToDestination (destination: PdfOutlineExplicitDestination, viewport: PdfViewportLike): boolean {
+        const shell = this.pdfPreviewShell?.nativeElement
+        const pageHost = this.pdfPreviewPage?.nativeElement
+        if (!shell || !pageHost) {
+            return false
+        }
+
+        const offset = this.getPdfDestinationViewportOffset(destination, viewport)
+        if (!offset) {
+            return true
+        }
+
+        const left = Math.max(0, pageHost.offsetLeft + offset.left)
+        const top = Math.max(0, pageHost.offsetTop + offset.top)
+        if (typeof shell.scrollTo === 'function') {
+            shell.scrollTo({ left, top, behavior: 'auto' })
+        } else {
+            shell.scrollLeft = left
+            shell.scrollTop = top
+        }
+        return true
+    }
+
+    private getPdfDestinationViewportOffset (
+        destination: PdfOutlineExplicitDestination,
+        viewport: PdfViewportLike,
+    ): PdfOutlineViewportOffset | null {
+        if (destination.length < 2 || typeof destination[1] !== 'object' || destination[1] === null) {
+            return { left: 0, top: 0 }
+        }
+
+        const destinationConfig = destination[1] as PdfOutlineDestinationConfig
+        const pageWidth = viewport.width / viewport.scale / PDF_CSS_UNITS
+        const pageHeight = viewport.height / viewport.scale / PDF_CSS_UNITS
+        const destinationName = destinationConfig.name ?? ''
+        let x = 0
+        let y = 0
+        let width = 0
+        let height = 0
+
+        switch (destinationName) {
+            case 'XYZ':
+                x = typeof destination[2] === 'number' ? destination[2] : 0
+                y = typeof destination[3] === 'number' ? destination[3] : pageHeight
+                break
+            case 'Fit':
+            case 'FitB':
+                break
+            case 'FitH':
+            case 'FitBH':
+                y = typeof destination[2] === 'number' && destination[2] >= 0 ? destination[2] : pageHeight
+                break
+            case 'FitV':
+            case 'FitBV':
+                x = typeof destination[2] === 'number' ? destination[2] : 0
+                width = pageWidth
+                height = pageHeight
+                break
+            case 'FitR': {
+                const left = typeof destination[2] === 'number' ? destination[2] : 0
+                const top = typeof destination[3] === 'number' ? destination[3] : pageHeight
+                const right = typeof destination[4] === 'number' ? destination[4] : left
+                const bottom = typeof destination[5] === 'number' ? destination[5] : top
+                x = left
+                y = top
+                width = right - left
+                height = bottom - top
+                break
+            }
+            default:
+                return { left: 0, top: 0 }
+        }
+
+        const topLeft = viewport.convertToViewportPoint(x, y)
+        const bottomRight = viewport.convertToViewportPoint(x + width, y + height)
+        return {
+            left: Math.max(0, Math.min(topLeft[0], bottomRight[0])),
+            top: Math.max(0, Math.min(topLeft[1], bottomRight[1])),
+        }
     }
 
     private async renderCurrentPdfPage (): Promise<void> {
@@ -3363,6 +3784,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
             this.applyPdfTextLayerInlineStyles(textLayer, textDivs)
             this.ensurePdfTextLayerSelectionTail(textLayer)
+            this.applyPendingPdfDestinationScroll(viewport)
         } catch (error: any) {
             const message = `${error?.message ?? ''}`.toLowerCase()
             const cancelled = renderToken !== this.pdfRenderToken || message.includes('cancel')
@@ -3475,6 +3897,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.cancelPdfRender()
         this.pdfRenderToken++
+        this.pdfOutlineLoadToken++
+        this.pdfPendingDestination = null
+        this.resetPdfOutlineState()
 
         try {
             this.pdfLoadingTask?.destroy?.()
@@ -3536,20 +3961,25 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.status = `PDF ${this.pdfCurrentPage}/${this.pdfPageCount}`
     }
 
-    private goToPdfPage (page: number): void {
+    private goToPdfPage (page: number, destination: PdfOutlineExplicitDestination | null = null): void {
         if (!this.pdfPageCount || this.isPdfBusy() || !Number.isFinite(page)) {
             return
         }
 
+        this.pdfPendingDestination = destination?.length ? destination : null
         const nextPage = Math.round(clampNumber(page, 1, this.pdfPageCount))
         this.pdfPageInput = `${nextPage}`
         if (nextPage === this.pdfCurrentPage) {
+            this.updateActivePdfOutlineItem()
+            this.updatePdfStatus()
             this.safeDetectChanges()
+            void this.scrollToPendingPdfDestination()
             return
         }
 
         this.clearTranslationSelection('pdf')
         this.pdfCurrentPage = nextPage
+        this.updateActivePdfOutlineItem()
         this.updatePdfStatus()
         this.safeDetectChanges()
         this.schedulePdfRender()
@@ -4765,6 +5195,24 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         } catch {
             this.notifications.error('Failed to open link')
         }
+    }
+
+    private openSupportedExternalLink (url: string, unsupportedMessage: string): void {
+        const href = `${url ?? ''}`.trim()
+        if (!href) {
+            return
+        }
+
+        if (/^\/\//.test(href)) {
+            this.openExternalLink(`https:${href}`)
+            return
+        }
+        if (/^(https?:|mailto:|tel:)/i.test(href)) {
+            this.openExternalLink(href)
+            return
+        }
+
+        this.notifications.notice(unsupportedMessage)
     }
 
     private readClipboardText (): string {
