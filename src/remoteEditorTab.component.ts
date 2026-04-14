@@ -22,6 +22,8 @@ import {
 require('github-markdown-css/github-markdown.css')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('katex/dist/katex.min.css')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('./markdownPreviewMath.css')
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
 type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
@@ -936,12 +938,6 @@ function luminance (rgb: RGB): number {
             box-sizing: border-box;
             user-select: text;
             -webkit-user-select: text;
-        }
-
-        .markdown-preview.markdown-body .katex-display {
-            overflow-x: auto;
-            overflow-y: hidden;
-            padding: 0.25rem 0;
         }
 
         @media (max-width: 767px) {

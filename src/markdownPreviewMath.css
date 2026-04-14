@@ -1,0 +1,41 @@
+.markdown-preview.markdown-body .katex {
+    font-size: 1.21em;
+    line-height: 1.2;
+    text-indent: 0;
+}
+
+.markdown-preview.markdown-body .katex .vlist-t {
+    display: inline-table;
+    table-layout: fixed;
+    border-collapse: collapse;
+}
+
+.markdown-preview.markdown-body .katex .vlist-r {
+    display: table-row;
+}
+
+.markdown-preview.markdown-body .katex .vlist {
+    display: table-cell;
+    position: relative;
+    vertical-align: bottom;
+}
+
+.markdown-preview.markdown-body .katex .vlist > span {
+    display: block;
+    height: 0;
+    position: relative;
+}
+
+.markdown-preview.markdown-body .katex .vlist > span > span {
+    display: inline-block;
+}
+
+.markdown-preview.markdown-body .katex .msupsub {
+    text-align: left;
+}
+
+.markdown-preview.markdown-body .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0;
+}
