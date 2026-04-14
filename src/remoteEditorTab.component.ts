@@ -1,4 +1,5 @@
 import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@angular/core'
+import { DomSanitizer } from '@angular/platform-browser'
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
 import rehypeKatex from 'rehype-katex'
@@ -161,7 +162,7 @@ const markdownPreviewProcessor = unified()
     .use(remarkGfm)
     .use(remarkMath, { singleDollarTextMath: true })
     .use(remarkRehype, { allowDangerousHtml: true })
-    .use(rehypeKatex)
+    .use(rehypeKatex, { output: 'mathml' })
     .use(rehypeStringify, { allowDangerousHtml: true })
 
 function escapeHtml (value: string): string {
@@ -348,7 +349,8 @@ function renderMarkdownPreview (text: string): string {
         )
 
         return sanitize(rawHtml, {
-            USE_PROFILES: { html: true, mathMl: true },
+            USE_PROFILES: { html: true, mathMl: true, svg: true },
+            FORBID_CONTENTS: ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'svg', 'template', 'thead', 'title', 'video', 'xmp'],
             ALLOW_UNKNOWN_PROTOCOLS: false,
         }) ?? ''
     } catch (e: any) {
@@ -1433,7 +1435,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     diffMode = false
 
     markdownPreview = false
-    markdownPreviewHtml = ''
+    markdownPreviewHtml: any = ''
 
     translationSettings = getDefaultTranslationConfig()
     translationSettingsDraft = getDefaultTranslationConfig()
@@ -1553,6 +1555,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private pdfOutlineLoadToken = 0
     private pdfPendingDestination: PdfOutlineExplicitDestination | null = null
 
+    private domSanitizer: DomSanitizer
+
     constructor (
         injector: Injector,
         private app: AppService,
@@ -1562,6 +1566,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         private cdr: ChangeDetectorRef,
     ) {
         super(injector)
+        this.domSanitizer = injector.get(DomSanitizer)
         this.setTitle('Editor')
         this.icon = 'fas fa-pen-to-square'
     }
@@ -4598,7 +4603,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
-        this.markdownPreviewHtml = renderMarkdownPreview(source ?? '')
+        this.markdownPreviewHtml = this.domSanitizer.bypassSecurityTrustHtml(renderMarkdownPreview(source ?? ''))
     }
 
     private setupTranslationUiListeners (): void {

@@ -6,9 +6,15 @@ declare module '@angular/core' {
     export const Component: any
     export const NgModule: any
     export const ViewChild: any
-    export class Injector { }
+    export class Injector { get (token: any): any }
     export class ElementRef<T = any> { nativeElement: T }
     export class ChangeDetectorRef { detectChanges (): void }
+}
+
+declare module '@angular/platform-browser' {
+    export abstract class DomSanitizer {
+        bypassSecurityTrustHtml (value: string): any
+    }
 }
 
 declare module '@angular/common' {
