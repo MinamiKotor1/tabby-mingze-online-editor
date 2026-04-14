@@ -20,10 +20,13 @@
   "license": "MIT",
   "dependencies": {
     "github-markdown-css": "^5.9.0",
+    "katex": "^0.16.45",
     "monaco-editor": "^0.47.0",
     "pdfjs-dist": "3.11.174",
+    "rehype-katex": "^7.0.1",
     "rehype-stringify": "^10.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "unified": "^11.0.5"

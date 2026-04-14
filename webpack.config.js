@@ -40,7 +40,7 @@ module.exports = (_env, argv = {}) => {
         },
         { test: /\.pug$/, use: ['apply-loader', 'pug-loader'] },
         { test: /\.css$/, use: ['style-loader', 'css-loader'] },
-        { test: /\.ttf$/, type: 'asset/resource' },
+        { test: /\.(woff2?|ttf)$/, type: 'asset/resource' },
       ],
     },
     externals: [

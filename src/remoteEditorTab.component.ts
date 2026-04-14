@@ -1,8 +1,10 @@
 import { ChangeDetectorRef, Component, ElementRef, Injector, ViewChild } from '@angular/core'
 import { AppService, BaseTabComponent, NotificationsService, PlatformService, ThemesService } from 'tabby-core'
 import { SFTPSession } from 'tabby-ssh'
+import rehypeKatex from 'rehype-katex'
 import rehypeStringify from 'rehype-stringify'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import remarkRehype from 'remark-rehype'
 import { unified } from 'unified'
@@ -18,6 +20,8 @@ import {
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('github-markdown-css/github-markdown.css')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+require('katex/dist/katex.min.css')
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
 type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
@@ -153,7 +157,9 @@ function getPdfJs (): PdfJs {
 const markdownPreviewProcessor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    .use(remarkMath, { singleDollarTextMath: true })
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeKatex)
     .use(rehypeStringify, { allowDangerousHtml: true })
 
 function escapeHtml (value: string): string {
@@ -165,6 +171,167 @@ function escapeHtml (value: string): string {
         .replace(/'/g, '&#39;')
 }
 
+function isEscapedMarkdownCharacter (value: string, index: number): boolean {
+    let slashCount = 0
+
+    for (let i = index - 1; i >= 0 && value[i] === '\\'; i--) {
+        slashCount++
+    }
+
+    return slashCount % 2 === 1
+}
+
+function countRepeatedCharacter (value: string, start: number, character: string): number {
+    let length = 0
+
+    while (value[start + length] === character) {
+        length++
+    }
+
+    return length
+}
+
+function isLikelyInlineMathContent (value: string): boolean {
+    const trimmed = value.trim()
+
+    if (!trimmed) {
+        return false
+    }
+
+    if (!/\s/.test(trimmed)) {
+        return true
+    }
+
+    if (/[\\^_{}=<>+\-*/()[\],]/.test(trimmed)) {
+        return true
+    }
+
+    const tokens = trimmed.split(/\s+/).filter(Boolean)
+    if (!tokens.length) {
+        return false
+    }
+
+    const proseTokens = new Set([
+        'a',
+        'an',
+        'and',
+        'are',
+        'as',
+        'at',
+        'be',
+        'by',
+        'for',
+        'from',
+        'in',
+        'is',
+        'not',
+        'of',
+        'on',
+        'or',
+        'the',
+        'to',
+        'with',
+    ])
+
+    return tokens.every(token => /^[0-9A-Za-z]+$/.test(token) && !proseTokens.has(token.toLowerCase()) && token.length <= 2)
+}
+
+function findInlineMathClosingDelimiter (value: string, start: number): number {
+    for (let i = start; i < value.length; i++) {
+        if (value[i] === '`') {
+            return -1
+        }
+
+        if (value[i] !== '$' || isEscapedMarkdownCharacter(value, i)) {
+            continue
+        }
+
+        if (value[i - 1] === '$' || value[i + 1] === '$') {
+            continue
+        }
+
+        return i
+    }
+
+    return -1
+}
+
+function protectNonMathSingleDollarInlineSegmentsInLine (value: string): string {
+    let result = ''
+
+    for (let i = 0; i < value.length;) {
+        if (value[i] === '`') {
+            const tickCount = countRepeatedCharacter(value, i, '`')
+            const delimiter = '`'.repeat(tickCount)
+            const closingIndex = value.indexOf(delimiter, i + tickCount)
+
+            if (closingIndex === -1) {
+                result += value.slice(i)
+                break
+            }
+
+            result += value.slice(i, closingIndex + tickCount)
+            i = closingIndex + tickCount
+            continue
+        }
+
+        if (value[i] !== '$' || isEscapedMarkdownCharacter(value, i) || value[i - 1] === '$' || value[i + 1] === '$') {
+            result += value[i]
+            i++
+            continue
+        }
+
+        const closingIndex = findInlineMathClosingDelimiter(value, i + 1)
+        if (closingIndex === -1) {
+            result += value[i]
+            i++
+            continue
+        }
+
+        const mathContent = value.slice(i + 1, closingIndex)
+        if (!isLikelyInlineMathContent(mathContent)) {
+            result += '\\$'
+            i++
+            continue
+        }
+
+        result += value.slice(i, closingIndex + 1)
+        i = closingIndex + 1
+    }
+
+    return result
+}
+
+function protectNonMathSingleDollarInlineSegments (value: string): string {
+    const lines = (value ?? '').split('\n')
+    const result: string[] = []
+    let activeFence: string | null = null
+
+    for (const line of lines) {
+        const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/)
+
+        if (activeFence) {
+            result.push(line)
+
+            if (fenceMatch && fenceMatch[1][0] === activeFence[0] && fenceMatch[1].length >= activeFence.length) {
+                activeFence = null
+            }
+
+            continue
+        }
+
+        if (fenceMatch) {
+            activeFence = fenceMatch[1]
+            result.push(line)
+            continue
+        }
+
+        result.push(protectNonMathSingleDollarInlineSegmentsInLine(line))
+    }
+
+    return result.join('\n')
+}
+
 function renderMarkdownPreview (text: string): string {
     try {
         const domPurifyModule = getDomPurify()
@@ -173,12 +340,13 @@ function renderMarkdownPreview (text: string): string {
         if (typeof sanitize !== 'function') {
             return `<pre>${escapeHtml(text)}</pre>`
         }
+        const markdownSource = protectNonMathSingleDollarInlineSegments(text ?? '')
         const rawHtml = String(
-            markdownPreviewProcessor.processSync(text ?? ''),
+            markdownPreviewProcessor.processSync(markdownSource),
         )
 
         return sanitize(rawHtml, {
-            USE_PROFILES: { html: true },
+            USE_PROFILES: { html: true, mathMl: true },
             ALLOW_UNKNOWN_PROTOCOLS: false,
         }) ?? ''
     } catch (e: any) {
@@ -768,6 +936,12 @@ function luminance (rgb: RGB): number {
             box-sizing: border-box;
             user-select: text;
             -webkit-user-select: text;
+        }
+
+        .markdown-preview.markdown-body .katex-display {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 0.25rem 0;
         }
 
         @media (max-width: 767px) {
