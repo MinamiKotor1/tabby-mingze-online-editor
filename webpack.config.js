@@ -29,6 +29,9 @@ module.exports = (_env, argv = {}) => {
       extensions: ['.ts', '.js'],
       alias: {
         canvas: false,
+        'micromark-util-symbol/codes.js': path.resolve(__dirname, 'node_modules/micromark-util-symbol/lib/codes.js'),
+        'micromark-util-symbol/types.js': path.resolve(__dirname, 'node_modules/micromark-util-symbol/lib/types.js'),
+        'micromark-util-symbol/values.js': path.resolve(__dirname, 'node_modules/micromark-util-symbol/lib/values.js'),
       },
     },
     module: {

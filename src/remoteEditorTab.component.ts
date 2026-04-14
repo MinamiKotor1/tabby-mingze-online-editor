@@ -24,9 +24,12 @@ require('github-markdown-css/github-markdown.css')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 require('katex/dist/katex.min.css')
 // eslint-disable-next-line @typescript-eslint/no-var-requires
+require('./markdownPreviewMermaid.css')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 require('./markdownPreviewMath.css')
 
 type Monaco = typeof import('monaco-editor/esm/vs/editor/editor.api')
+type Mermaid = typeof import('mermaid').default
 type PdfJs = typeof import('pdfjs-dist/types/src/pdf')
 type SafeHtml = ReturnType<DomSanitizer['bypassSecurityTrustHtml']>
 
@@ -35,6 +38,21 @@ type DomPurifyModule = {
     sanitize?: DomPurifySanitizer
     default?: DomPurifySanitizer | { sanitize?: DomPurifySanitizer }
 }
+
+const markdownPreviewForbiddenContents = ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'template', 'thead', 'title', 'video', 'xmp']
+const markdownPreviewSanitizeOptions: Record<string, unknown> = {
+    USE_PROFILES: { html: true, mathMl: true, svg: true },
+    FORBID_CONTENTS: markdownPreviewForbiddenContents,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+}
+const markdownPreviewMermaidSanitizeOptions: Record<string, unknown> = {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_CONTENTS: markdownPreviewForbiddenContents.filter(value => value !== 'style'),
+    ADD_TAGS: ['style'],
+    ADD_ATTR: ['style'],
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+}
+const markdownPreviewMermaidFenceSelector = 'pre > code.language-mermaid, pre > code.lang-mermaid'
 
 type TranslationSelectionSource = 'monaco' | 'markdown' | 'pdf'
 type TranslationPopoverTab = 'translate' | 'ask_ai'
@@ -153,7 +171,17 @@ function getDomPurify (): DomPurifyModule {
     return require('monaco-editor/esm/vs/base/browser/dompurify/dompurify')
 }
 
+function getDomPurifySanitizer (): DomPurifySanitizer | null {
+    const domPurifyModule = getDomPurify()
+    const defaultDomPurifyExport = domPurifyModule?.default
+    const sanitize = domPurifyModule?.sanitize ??
+        (typeof defaultDomPurifyExport === 'function' ? defaultDomPurifyExport : defaultDomPurifyExport?.sanitize)
+
+    return typeof sanitize === 'function' ? sanitize : null
+}
+
 let pdfJsModule: PdfJs | null | undefined
+let mermaidModule: Mermaid | null | undefined
 function getPdfJs (): PdfJs {
     if (pdfJsModule) {
         return pdfJsModule
@@ -162,6 +190,16 @@ function getPdfJs (): PdfJs {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     pdfJsModule = require('pdfjs-dist/webpack') as PdfJs
     return pdfJsModule
+}
+
+function getMermaid (): Mermaid {
+    if (mermaidModule) {
+        return mermaidModule
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    mermaidModule = require('mermaid').default as Mermaid
+    return mermaidModule
 }
 
 const markdownPreviewProcessor = unified()
@@ -344,12 +382,9 @@ function protectNonMathSingleDollarInlineSegments (value: string): string {
 
 function renderMarkdownPreview (text: string): string {
     try {
-        const domPurifyModule = getDomPurify()
-        const defaultDomPurifyExport = domPurifyModule?.default
-        const sanitize = domPurifyModule?.sanitize ??
-            (typeof defaultDomPurifyExport === 'function' ? defaultDomPurifyExport : defaultDomPurifyExport?.sanitize)
+        const sanitize = getDomPurifySanitizer()
 
-        if (typeof sanitize !== 'function') {
+        if (!sanitize) {
             return `<pre>${escapeHtml(text)}</pre>`
         }
         const markdownSource = protectNonMathSingleDollarInlineSegments(text ?? '')
@@ -357,11 +392,7 @@ function renderMarkdownPreview (text: string): string {
             markdownPreviewProcessor.processSync(markdownSource),
         )
 
-        return sanitize(rawHtml, {
-            USE_PROFILES: { html: true, mathMl: true, svg: true },
-            FORBID_CONTENTS: ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'template', 'thead', 'title', 'video', 'xmp'],
-            ALLOW_UNKNOWN_PROTOCOLS: false,
-        }) ?? ''
+        return sanitize(rawHtml, markdownPreviewSanitizeOptions) ?? ''
     } catch (e: unknown) {
         const detail = e instanceof Error ? e.message : 'Unknown error'
         return `
@@ -371,6 +402,15 @@ function renderMarkdownPreview (text: string): string {
             </div>
         `
     }
+}
+
+function sanitizeMermaidSvg (svg: string): string {
+    const sanitize = getDomPurifySanitizer()
+    if (!sanitize) {
+        return svg ?? ''
+    }
+
+    return sanitize(svg ?? '', markdownPreviewMermaidSanitizeOptions) ?? ''
 }
 
 let monacoLanguagesLoaded = false
@@ -726,6 +766,15 @@ function getIconvLite (): any|null {
 
 type RGB = { r: number, g: number, b: number }
 
+type MarkdownPreviewMermaidThemeVariables = {
+    darkMode: boolean
+    background: string
+    primaryColor: string
+    primaryTextColor: string
+    lineColor: string
+    noteBkgColor: string
+}
+
 function clamp255 (n: number): number {
     if (!Number.isFinite(n)) {
         return 0
@@ -808,6 +857,25 @@ function luminance (rgb: RGB): number {
     const g = srgbChannelToLinear(rgb.g)
     const b = srgbChannelToLinear(rgb.b)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function rgbToHex (rgb: RGB): string {
+    return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`
+
+    function toHex (value: number): string {
+        return clamp255(value).toString(16).padStart(2, '0')
+    }
+}
+
+function resolveCssHexColor (candidates: Array<string | null | undefined>, fallback: string): string {
+    for (const candidate of candidates) {
+        const color = parseCssColor(candidate ?? '')
+        if (color) {
+            return rgbToHex(color)
+        }
+    }
+
+    return fallback
 }
 
 @Component({
@@ -1563,6 +1631,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private pdfRenderToken = 0
     private pdfOutlineLoadToken = 0
     private pdfPendingDestination: PdfOutlineExplicitDestination | null = null
+    private markdownMermaidRenderTimer: number | null = null
+    private markdownMermaidRenderToken = 0
+    private markdownMermaidRenderQueue: Promise<void> = Promise.resolve()
 
     private readonly domSanitizer: DomSanitizer
 
@@ -1648,6 +1719,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             clearTimeout(this.translationSelectionTimer)
             this.translationSelectionTimer = null
         }
+        this.cancelMarkdownMermaidRender()
         this.disposePdfPreview()
         this.disposeDiffEditor()
         this.disposeEditor()
@@ -2494,6 +2566,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.clearTranslationSelection('monaco')
             this.scheduleMarkdownSelectionUpdate()
         } else {
+            this.cancelMarkdownMermaidRender()
             this.clearTranslationSelection('markdown')
             this.ensureCodeEditorFocus(this.editor)
         }
@@ -4596,6 +4669,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     private refreshMarkdownPreview (text?: string): void {
         if (this.languageId !== 'markdown') {
+            this.cancelMarkdownMermaidRender()
             this.markdownPreviewHtml = ''
             return
         }
@@ -4613,6 +4687,134 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
 
         this.markdownPreviewHtml = this.domSanitizer.bypassSecurityTrustHtml(renderMarkdownPreview(source ?? ''))
+        this.scheduleMarkdownMermaidRender()
+    }
+
+    private cancelMarkdownMermaidRender (): void {
+        this.markdownMermaidRenderToken++
+        if (this.markdownMermaidRenderTimer !== null) {
+            clearTimeout(this.markdownMermaidRenderTimer)
+            this.markdownMermaidRenderTimer = null
+        }
+    }
+
+    private scheduleMarkdownMermaidRender (): void {
+        const renderToken = this.markdownMermaidRenderToken + 1
+        this.markdownMermaidRenderToken = renderToken
+
+        if (this.markdownMermaidRenderTimer !== null) {
+            clearTimeout(this.markdownMermaidRenderTimer)
+        }
+
+        this.markdownMermaidRenderTimer = window.setTimeout(() => {
+            this.markdownMermaidRenderTimer = null
+            this.markdownMermaidRenderQueue = this.markdownMermaidRenderQueue
+                .then(() => this.renderMarkdownMermaidDiagrams(renderToken))
+                .catch(() => {})
+        }, 0)
+    }
+
+    private async renderMarkdownMermaidDiagrams (renderToken: number): Promise<void> {
+        if (renderToken !== this.markdownMermaidRenderToken || !this.showMarkdownPreview()) {
+            return
+        }
+
+        const mermaid = getMermaid()
+
+        const preview = this.contentArea?.nativeElement.querySelector('.markdown-preview') as HTMLElement | null
+        if (!preview) {
+            return
+        }
+
+        const mermaidBlocks = Array.from(preview.querySelectorAll(markdownPreviewMermaidFenceSelector)) as HTMLElement[]
+        if (!mermaidBlocks.length) {
+            return
+        }
+
+        const previewStyle = getComputedStyle(preview)
+
+        mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: 'strict',
+            theme: 'base',
+            fontFamily: previewStyle.fontFamily || 'inherit',
+            themeVariables: this.getMarkdownMermaidThemeVariables(previewStyle),
+            flowchart: {
+                htmlLabels: false,
+                useMaxWidth: true,
+            },
+        })
+
+        for (let index = 0; index < mermaidBlocks.length; index++) {
+            if (renderToken !== this.markdownMermaidRenderToken || !this.showMarkdownPreview()) {
+                return
+            }
+
+            const codeBlock = mermaidBlocks[index]
+            const source = codeBlock.textContent ?? ''
+            const pre = codeBlock.parentElement as HTMLElement | null
+            if (!pre || !source.trim()) {
+                continue
+            }
+
+            try {
+                const { svg, bindFunctions } = await mermaid.render(`tabby-mermaid-${renderToken}-${index}`, source)
+                if (renderToken !== this.markdownMermaidRenderToken || !preview.isConnected || !pre.isConnected) {
+                    return
+                }
+
+                const sanitizedSvg = sanitizeMermaidSvg(svg)
+                if (!/\<svg[\s>]/i.test(sanitizedSvg)) {
+                    continue
+                }
+
+                const diagram = document.createElement('div')
+                diagram.className = 'markdown-mermaid'
+                diagram.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
+                diagram.innerHTML = sanitizedSvg
+                bindFunctions?.(diagram)
+                pre.replaceWith(diagram)
+            } catch (error: unknown) {
+                pre.setAttribute('title', error instanceof Error ? error.message : 'Mermaid render failed')
+            }
+        }
+    }
+
+    private getMarkdownMermaidThemeVariables (previewStyle: CSSStyleDeclaration): MarkdownPreviewMermaidThemeVariables {
+        const background = resolveCssHexColor([
+            previewStyle.getPropertyValue('--bgColor-default').trim(),
+            previewStyle.backgroundColor,
+        ], this.darkMode ? '#0d1117' : '#ffffff')
+
+        const primaryColor = resolveCssHexColor([
+            previewStyle.getPropertyValue('--bgColor-muted').trim(),
+            previewStyle.getPropertyValue('--bgColor-neutral-muted').trim(),
+            background,
+        ], this.darkMode ? '#151b23' : '#f6f8fa')
+
+        const primaryTextColor = resolveCssHexColor([
+            previewStyle.getPropertyValue('--fgColor-default').trim(),
+            previewStyle.color,
+        ], this.darkMode ? '#f0f6fc' : '#1f2328')
+
+        const lineColor = resolveCssHexColor([
+            previewStyle.getPropertyValue('--borderColor-default').trim(),
+            previewStyle.getPropertyValue('--fgColor-muted').trim(),
+        ], this.darkMode ? '#3d444d' : '#d1d9e0')
+
+        const noteBkgColor = resolveCssHexColor([
+            previewStyle.getPropertyValue('--bgColor-attention-muted').trim(),
+            primaryColor,
+        ], this.darkMode ? '#bb8009' : '#fff8c5')
+
+        return {
+            darkMode: this.darkMode,
+            background,
+            primaryColor,
+            primaryTextColor,
+            lineColor,
+            noteBkgColor,
+        }
     }
 
     private setupTranslationUiListeners (): void {
@@ -5345,6 +5547,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private applyTheme (): void {
         const monaco = getMonaco()
         monaco.editor.setTheme(this.darkMode ? 'vs-dark' : 'vs')
+
+        if (this.showMarkdownPreview()) {
+            this.refreshMarkdownPreview()
+            this.safeDetectChanges()
+            if (this.translationSelectionState?.source === 'markdown') {
+                this.scheduleMarkdownSelectionUpdate()
+            }
+        }
     }
 
     private relayoutEditors (): void {

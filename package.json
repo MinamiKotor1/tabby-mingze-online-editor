@@ -21,6 +21,7 @@
   "dependencies": {
     "github-markdown-css": "^5.9.0",
     "katex": "^0.16.45",
+    "mermaid": "10.9.1",
     "monaco-editor": "^0.47.0",
     "pdfjs-dist": "3.11.174",
     "rehype-katex": "^7.0.1",
