@@ -52,6 +52,12 @@ const markdownPreviewMermaidSanitizeOptions: Record<string, unknown> = {
     ADD_ATTR: ['style'],
     ALLOW_UNKNOWN_PROTOCOLS: false,
 }
+const svgPreviewForbiddenContents = ['audio', 'foreignobject', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'template', 'video', 'xmp']
+const svgPreviewSanitizeOptions: Record<string, unknown> = {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_CONTENTS: svgPreviewForbiddenContents,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+}
 const markdownPreviewMermaidFenceSelector = 'pre > code.language-mermaid, pre > code.lang-mermaid'
 
 type TranslationSelectionSource = 'monaco' | 'markdown' | 'pdf'
@@ -404,6 +410,121 @@ function renderMarkdownPreview (text: string): string {
     }
 }
 
+function renderSvgPreviewError (detail: string): string {
+    return `
+        <div class="svg-preview-error">
+            <strong>SVG preview failed</strong>
+            <pre>${escapeHtml(detail)}</pre>
+        </div>
+    `
+}
+
+function normalizeSvgReference (value: string): string {
+    let normalized = (value ?? '').trim()
+    if (!normalized) {
+        return ''
+    }
+
+    if (
+        (normalized.startsWith('"') && normalized.endsWith('"')) ||
+        (normalized.startsWith('\'') && normalized.endsWith('\''))
+    ) {
+        normalized = normalized.slice(1, -1).trim()
+    }
+
+    return normalized
+}
+
+function isSvgFragmentReference (value: string): boolean {
+    const normalized = normalizeSvgReference(value)
+    return normalized.startsWith('#') && normalized.length > 1
+}
+
+function hasUnsafeSvgUrlReference (value: string): boolean {
+    let unsafe = false
+    const source = `${value ?? ''}`
+    source.replace(/url\(([^)]*)\)/gi, (_match: string, rawValue: string) => {
+        if (!isSvgFragmentReference(rawValue)) {
+            unsafe = true
+        }
+        return ''
+    })
+    return unsafe
+}
+
+function hardenSvgTree (root: Element): void {
+    const elements = [root, ...Array.from(root.querySelectorAll('*'))]
+
+    for (const element of elements) {
+        const tagName = (element.localName ?? element.nodeName ?? '').toLowerCase()
+        if (tagName === 'style') {
+            element.remove()
+            continue
+        }
+
+        const attributes = Array.from(element.attributes)
+        for (const attribute of attributes) {
+            const attributeName = attribute.name.toLowerCase()
+            const attributeValue = attribute.value ?? ''
+
+            if (attributeName === 'style') {
+                element.removeAttribute(attribute.name)
+                continue
+            }
+
+            if (attributeName === 'href' || attributeName === 'xlink:href') {
+                if (!isSvgFragmentReference(attributeValue)) {
+                    element.removeAttribute(attribute.name)
+                }
+                continue
+            }
+
+            if (hasUnsafeSvgUrlReference(attributeValue)) {
+                element.removeAttribute(attribute.name)
+            }
+        }
+    }
+}
+
+function renderSvgPreview (text: string): string {
+    try {
+        const source = text ?? ''
+        if (!source.trim()) {
+            return renderSvgPreviewError('SVG source is empty')
+        }
+
+        const sanitize = getDomPurifySanitizer()
+        if (!sanitize) {
+            return renderSvgPreviewError('SVG sanitizer is unavailable in this Tabby build')
+        }
+
+        const sanitizedSvg = sanitize(source, svgPreviewSanitizeOptions)?.trim() ?? ''
+        if (!sanitizedSvg) {
+            return renderSvgPreviewError('SVG preview is empty after sanitization')
+        }
+
+        const parser = new DOMParser()
+        const parsedDocument = parser.parseFromString(sanitizedSvg, 'image/svg+xml')
+        const parseError = parsedDocument.getElementsByTagName('parsererror')[0]
+        if (parseError) {
+            return renderSvgPreviewError(parseError.textContent?.trim() || 'Malformed SVG')
+        }
+
+        const root = parsedDocument.documentElement
+        const rootName = (root?.localName ?? root?.nodeName ?? '').toLowerCase()
+        if (rootName !== 'svg') {
+            return renderSvgPreviewError('SVG root element is missing')
+        }
+
+        hardenSvgTree(root)
+
+        return new XMLSerializer().serializeToString(root)
+    } catch (e: unknown) {
+        const detail = e instanceof Error ? e.message : 'Unknown error'
+        return renderSvgPreviewError(detail)
+    }
+}
+
 function sanitizeMermaidSvg (svg: string): string {
     const sanitize = getDomPurifySanitizer()
     if (!sanitize) {
@@ -551,6 +672,11 @@ function getRussh (): any {
     return require('russh')
 }
 
+function isSvgFile (pathOrName: string): boolean {
+    const base = (pathOrName ?? '').split(/[\\/]/).pop()?.toLowerCase() ?? ''
+    return base.endsWith('.svg')
+}
+
 function detectLanguageId (pathOrName: string): string {
     const base = (pathOrName ?? '').split(/[\\/]/).pop()?.toLowerCase() ?? ''
 
@@ -625,6 +751,9 @@ function detectLanguageId (pathOrName: string): string {
     }
     if (base.endsWith('.lua')) {
         return 'lua'
+    }
+    if (base.endsWith('.svg')) {
+        return 'xml'
     }
     if (base.endsWith('.xml')) {
         return 'xml'
@@ -1143,6 +1272,54 @@ function resolveCssHexColor (candidates: Array<string | null | undefined>, fallb
             background: rgba(255, 193, 7, 0.12);
         }
 
+        .svg-preview-shell {
+            overflow: auto;
+            padding: 1.25rem;
+            background: var(--theme-bg, var(--bs-body-bg));
+            color: var(--bs-body-color, inherit);
+        }
+
+        .svg-preview-stage {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100%;
+        }
+
+        .svg-preview-surface {
+            box-sizing: border-box;
+            width: min(100%, 1200px);
+            min-height: 240px;
+            padding: 1rem;
+            border-radius: 0.85rem;
+            border: 1px solid var(--theme-bg-more, var(--bs-border-color, rgba(0, 0, 0, 0.08)));
+            background: var(--theme-bg-less, var(--bs-body-bg, #fff));
+            box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.08);
+            overflow: auto;
+        }
+
+        :host ::ng-deep .svg-preview-surface > svg {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            margin: 0 auto;
+        }
+
+        :host ::ng-deep .svg-preview-surface .svg-preview-error {
+            max-width: 520px;
+            margin: 0 auto;
+            padding: 1rem 1.25rem;
+            border-radius: 0.85rem;
+            border: 1px solid var(--bs-warning, #ffc107);
+            background: rgba(255, 193, 7, 0.12);
+        }
+
+        :host ::ng-deep .svg-preview-surface .svg-preview-error pre {
+            margin: 0.75rem 0 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
         .pdf-preview-shell {
             overflow: auto;
             padding: 1.25rem;
@@ -1513,6 +1690,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     markdownPreview = false
     markdownPreviewHtml: SafeHtml | '' = ''
+    isSvg = false
+    svgPreview = false
+    svgPreviewHtml: SafeHtml | '' = ''
 
     translationSettings = getDefaultTranslationConfig()
     translationSettingsDraft = getDefaultTranslationConfig()
@@ -2090,7 +2270,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                     this.name = name
                     this.setTitle(name)
                     this.languageId = detectLanguageId(name)
+                    this.isSvg = isSvgFile(name)
                     this.applyLanguageToEditor()
+                    this.refreshSvgPreview()
                 }
 
                 if (item.isDirectory) {
@@ -2521,6 +2703,14 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         return this.languageId === 'markdown' && this.markdownPreview && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
     }
 
+    showSvgToolbar (): boolean {
+        return this.isSvg && this.languageId === 'xml' && !this.diffMode && !this.openError && !(this.isBinary && !this.forceOpenBinary)
+    }
+
+    showSvgPreview (): boolean {
+        return this.showSvgToolbar() && this.svgPreview
+    }
+
     showPdfPreview (): boolean {
         return this.isPdf && !this.diffMode && !this.openError
     }
@@ -2530,7 +2720,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     shouldHideEditorHost (): boolean {
-        return !!this.openError || (this.isBinary && !this.forceOpenBinary && !this.showPdfPreview()) || this.showMarkdownPreview() || this.showPdfPreview()
+        return !!this.openError || (this.isBinary && !this.forceOpenBinary && !this.showPdfPreview()) || this.showMarkdownPreview() || this.showSvgPreview() || this.showPdfPreview()
     }
 
     hasTranslationSelection (): boolean {
@@ -2570,6 +2760,41 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.clearTranslationSelection('markdown')
             this.ensureCodeEditorFocus(this.editor)
         }
+    }
+
+    setSvgPreview (preview: boolean): void {
+        if (!this.showSvgToolbar()) {
+            return
+        }
+
+        if (preview) {
+            this.refreshSvgPreview()
+        }
+
+        if (this.svgPreview === preview) {
+            return
+        }
+
+        this.svgPreview = preview
+        this.safeDetectChanges()
+        this.relayoutEditors()
+
+        if (preview) {
+            this.clearTranslationSelection('monaco')
+        } else {
+            this.ensureCodeEditorFocus(this.editor)
+        }
+    }
+
+    onSvgPreviewClick (event: MouseEvent): void {
+        const target = event.target as Element | null
+        const anchor = target?.closest?.('a') as Element | null
+        if (!anchor) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
     }
 
     onMarkdownPreviewClick (event: MouseEvent): void {
@@ -3251,6 +3476,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             size: this.size,
             title: this.title,
             languageId: this.languageId,
+            isSvg: this.isSvg,
+            svgPreview: this.svgPreview,
+            svgPreviewHtml: this.svgPreviewHtml,
             encoding: this.encoding,
             encodingAuto: this.encodingAuto,
             loadedBuffer: this.loadedBuffer,
@@ -3273,6 +3501,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.setTitle(item.name ?? item.fullPath)
 
         this.languageId = detectLanguageId(item.name ?? item.fullPath)
+        this.isSvg = isSvgFile(item.name ?? item.fullPath)
+        this.svgPreview = false
+        this.svgPreviewHtml = ''
         this.encodingAuto = true
         this.encoding = 'utf-8'
         this.loadedBuffer = null
@@ -3288,6 +3519,9 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.setTitle(prev.title ?? prev.name ?? prev.path)
 
             this.languageId = prev.languageId
+            this.isSvg = prev.isSvg
+            this.svgPreview = prev.svgPreview
+            this.svgPreviewHtml = prev.svgPreviewHtml
             this.encoding = prev.encoding
             this.encodingAuto = prev.encodingAuto
             this.loadedBuffer = prev.loadedBuffer
@@ -3575,7 +3809,12 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     private async applyLoadedBuffer (buffer: Buffer): Promise<void> {
         this.loadedBuffer = buffer
         this.isPdf = isPdfPreviewableFile(buffer, this.name ?? this.path ?? '')
+        this.isSvg = !this.isPdf && isSvgFile(this.name ?? this.path ?? '')
         this.isBinary = isBinaryContent(buffer)
+
+        if (!this.isSvg) {
+            this.svgPreviewHtml = ''
+        }
 
         if (this.isPdf) {
             await this.loadPdfPreview(buffer)
@@ -4299,6 +4538,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 this.loadedBuffer = Buffer.alloc(0)
                 this.isBinary = false
                 this.isPdf = false
+                this.isSvg = isSvgFile(this.name ?? this.path ?? '')
                 this.encoding = 'utf-8'
                 this.remoteMtime = null
                 this.initEditorIfNeeded()
@@ -4543,6 +4783,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
                 return
             }
             this.refreshMarkdownPreview()
+            this.refreshSvgPreview()
             this.dirty = true
             this.status = 'Modified'
         })
@@ -4580,6 +4821,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.editor.setValue(text)
             this.dirty = false
             this.refreshMarkdownPreview(text)
+            this.refreshSvgPreview(text)
             this.editor.updateOptions({
                 readOnly: this.readOnlyLargeFile,
                 wordWrap: 'on',
@@ -4603,6 +4845,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.diffMode = true
         this.markdownPreview = false
+        this.svgPreview = false
         this.status = 'Conflict detected'
 
         this.disposeEditor()
@@ -4688,6 +4931,27 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
         this.markdownPreviewHtml = this.domSanitizer.bypassSecurityTrustHtml(renderMarkdownPreview(source ?? ''))
         this.scheduleMarkdownMermaidRender()
+    }
+
+    private refreshSvgPreview (text?: string): void {
+        if (!this.isSvg) {
+            this.svgPreviewHtml = ''
+            return
+        }
+
+        let source = text
+        if (source === undefined) {
+            source = this.editor?.getValue?.()
+        }
+        if (source === undefined && this.loadedBuffer) {
+            try {
+                source = this.decodeBuffer(this.loadedBuffer, this.encoding)
+            } catch {
+                source = ''
+            }
+        }
+
+        this.svgPreviewHtml = this.domSanitizer.bypassSecurityTrustHtml(renderSvgPreview(source ?? ''))
     }
 
     private cancelMarkdownMermaidRender (): void {
@@ -4881,7 +5145,7 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     }
 
     private updateMonacoSelectionOverlay (editor = this.editor): void {
-        if (!editor || this.diffMode || this.showMarkdownPreview() || this.openError || (this.isBinary && !this.forceOpenBinary)) {
+        if (!editor || this.diffMode || this.showMarkdownPreview() || this.showSvgPreview() || this.openError || (this.isBinary && !this.forceOpenBinary)) {
             this.clearTranslationSelection('monaco')
             return
         }

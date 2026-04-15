@@ -56,6 +56,26 @@
                     i.fas.fa-book-open.me-1
                     span Preview
 
+            .btn-group.btn-group-sm(*ngIf='showSvgToolbar()', role='group')
+                button.btn.text-nowrap(
+                    type='button',
+                    [class.btn-primary]='!svgPreview',
+                    [class.btn-outline-secondary]='svgPreview',
+                    (click)='setSvgPreview(false)',
+                    [disabled]='loading'
+                )
+                    i.fas.fa-code.me-1
+                    span Source
+                button.btn.text-nowrap(
+                    type='button',
+                    [class.btn-primary]='svgPreview',
+                    [class.btn-outline-secondary]='!svgPreview',
+                    (click)='setSvgPreview(true)',
+                    [disabled]='loading'
+                )
+                    i.fas.fa-image.me-1
+                    span Preview
+
             .btn-group.btn-group-sm(*ngIf='showPdfToolbar()', role='group')
                 button.btn.btn-outline-secondary.text-nowrap(
                     type='button',
@@ -302,6 +322,10 @@
                         [attr.data-theme]='darkMode ? "dark" : "light"',
                         [innerHTML]='markdownPreviewHtml'
                     )
+
+                .svg-preview-shell.w-100.h-100(*ngIf='showSvgPreview()', (click)='onSvgPreviewClick($event)')
+                    .svg-preview-stage
+                        .svg-preview-surface([innerHTML]='svgPreviewHtml')
 
                 .pdf-preview-shell.w-100.h-100(#pdfPreviewShell,
                     *ngIf='showPdfPreview()',
