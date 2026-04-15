@@ -1,81 +1,80 @@
 # Tabby Mingze 在线编辑器
 
-`tabby-mingze-online-editor` 是一个 Tabby 插件。它会在 SSH/SFTP 文件浏览器中增加 **“Edit in Tabby”** 右键菜单，让你直接在 Tabby 内用 Monaco 编辑远端文件，无需手动下载/上传。
+`tabby-mingze-online-editor` 是一个 Tabby 插件。它会在 SFTP 文件浏览器的文件右键菜单中增加 **Edit in Tabby**，把远端文件直接打开到 Tabby 内的 Monaco 标签页中。
 
-## 功能特性
+## 概览
 
-- 在 SFTP 文件列表里右键文件，选择 **Edit in Tabby**，以新标签页打开
-- Monaco 编辑器体验（含常见语言语法高亮）
-- 左侧目录树：快速切换同目录文件、展开子目录、刷新、返回上级
-- 左侧目录树支持上传本地文件到当前目录或指定目录，并可将远端文件下载到本地
-- 保存时进行远端变更检测；发生冲突时进入 Diff 视图并提供冲突处理按钮
-- 支持多种文本编码：UTF-8、GBK、GB18030、Big5、Shift_JIS、EUC-KR、ISO-8859-1、Windows-1252
-- 自动识别 BOM（如 UTF-8 / UTF-16）
-- 大文件保护策略：
-  - 大于 1 MB：打开前警告
-  - 大于 5 MB：以只读方式打开
-  - 大于 20 MB：拒绝打开
-- 二进制文件检测（默认阻止编辑，可手动强制打开）
-- 支持跟随 Tabby 主题或手动切换明/暗色主题
+这个插件面向 SFTP 远端文件的查看、预览和编辑。核心流程很直接，先在 SFTP 面板里右键文件，选择 **Edit in Tabby**，再在 Tabby 内完成打开、修改、保存，以及同目录文件切换。并不是所有远端文件都能直接编辑，二进制文件、大文件和 PDF 会按实现中的保护或预览逻辑处理。
 
-## 安装与使用
+## 主要能力
 
-> 当前仓库主要用于本地开发与打包。
+* **SFTP 入口**：`Edit in Tabby` 只出现在 SFTP 文件项上，目录项不会显示这个菜单。
+* **Monaco 标签页**：远端文件在新标签页中打开，支持常见语言的语法高亮，`Ctrl/Cmd+S` 可保存。
+* **侧边栏文件树**：支持展开目录、刷新目录、返回上级目录、在当前标签打开文件、在新标签打开文件，以及复制远端路径。
+* **侧边栏文件操作**：支持新建文件、新建文件夹、重命名、删除。若当前 Tabby 构建提供本地文件选择与保存对话框，也支持上传本地文件到当前目录或指定目录，以及把远端文件下载到本地。
+* **冲突处理**：保存前会检查远端文件是否已变化。若检测到冲突，会进入 Monaco diff 视图，并提供 **Use local version**、**Use remote version**、**Cancel** 三种处理方式。
+* **主题切换**：支持跟随 Tabby 主题，也支持手动切换明暗色。
+* **Markdown 预览**：Markdown 文件可在 Source / Preview 间切换，预览链路包含 GFM、KaTeX 数学公式渲染和 Mermaid 图表渲染。
+* **SVG 预览**：SVG 文件可在 Source / Preview 间切换，预览前会进行清理和安全处理。
+* **PDF 预览**：PDF 会进入只读预览模式，支持翻页、页码跳转、缩放。若 PDF 自带 outline，也能在侧边栏查看和跳转。PDF 不是可编辑模式。
+* **编码支持**：可重新按指定编码打开，也可按指定编码保存。当前实现提供 `UTF-8`、`GBK`、`GB18030`、`Big5`、`Shift_JIS`、`EUC-KR`、`ISO-8859-1`、`Windows-1252`。BOM 会识别 `UTF-8`、`UTF-16LE`、`UTF-16BE`。
+* **保护机制**：文件大于 1 MB 时先警告，大于 5 MB 时只读打开，大于 20 MB 时拒绝打开。检测为二进制内容时默认阻止编辑，但用户可以手动选择 **Force Open**。
 
-1. 安装依赖并构建：
+## 安装与开发
 
-```bash
-yarn install
-yarn build
-```
-
-2. 将本项目目录复制或软链接到 Tabby 的 Plugins 目录。
-3. 重启（或重新加载）Tabby。
-4. 打开 SFTP 面板，右键某个文件，点击 **Edit in Tabby**。
-5. 在编辑器左侧目录树中：
-   - 点击顶部上传按钮，上传本地文件到当前目录
-   - 点击顶部下载按钮，下载当前打开的远端文件
-   - 右键目录可 **Upload Files Here**
-   - 右键文件可 **Download**
-
-## 开发命令
+先安装依赖：
 
 ```bash
 yarn install
-yarn build
-yarn watch
 ```
 
-- `yarn build`：输出插件到 `dist/`
-- `yarn watch`：监听源码变更并自动重建
+常用命令如下：
 
-## 项目结构
+* `yarn build`，以 development 模式构建
+* `yarn build:prod`，以 production 模式构建
+* `yarn watch`，监听源码变化并持续重建
 
-```text
-src/
-  index.ts                        # Angular 模块入口，设置 Monaco public path
-  remoteEditorTab.component.ts    # 远端编辑 Tab 主逻辑
-  remoteEditorTab.component.pug   # 编辑器界面模板
-  sftpContextMenu.ts              # SFTP 右键菜单扩展（Edit in Tabby）
-  shims-tabby.d.ts                # Tabby API 类型补充
-dist/                             # 构建产物
-```
+Webpack 会把构建结果输出到 `dist/`。包入口是 `dist/index.js`，类型声明是 `dist/index.d.ts`，包内文件列表只包含 `dist/`。
 
-## 注意事项
+Tabby 会在运行时提供 `@angular/*`、`rxjs`、`tabby-core`、`tabby-ssh` 等依赖；这些依赖在本项目里按 peer/external 方式处理，不会被一起打包进插件。
 
-- Tabby 运行时会提供 `tabby-core`、`tabby-ssh`、Angular、RxJS 等依赖，这些在本项目中以 `peerDependencies` 声明。
-- 若需要保存非 UTF-8 编码文件，运行环境中可能需要可用的 `iconv-lite`。
-- 暂无自动化测试，建议在改动后执行手动验证（打开、编辑、保存、冲突处理、大小文件与编码场景）。
+本仓库当前更适合作为本地开发和打包源。安装到 Tabby 的方式是：先执行构建，再把项目目录复制或软链接到 Tabby 的 Plugins 目录，最后重新加载 Tabby。
 
-## 手动验证清单（建议）
+## AI 配置与数据发送
 
-- 打开 SFTP 浏览器 → 右键文件 → **Edit in Tabby**
-- 修改并保存文件，确认远端内容已更新
-- 在侧边栏当前目录上传一个本地文件，确认远端目录刷新后可见
-- 右键侧边栏文件并下载到本地，确认内容一致
-- 两端同时修改同一文件，确认冲突检测与 Diff 处理正常
-- 验证大文件与二进制文件行为符合预期
-- （如涉及编码）切换编码后重新加载与保存，确认无乱码
+插件提供基于选区的 **Translate** 和 **Ask** 功能。选中文本后会出现 AI 入口，Monaco 编辑区的右键菜单里也有对应命令。当前选区入口覆盖三种区域：Monaco 编辑区、Markdown 预览区、PDF 预览中的文本层。
+
+只有在你显式触发时才会发起 AI 请求，例如点击 **Translate**、点击 **Ask** 并提交问题。单纯选中文本不会自动把内容发到外部服务。
+
+请求负载以当前选中文本为基础：
+
+* **Translate** 会把所选文本作为主要输入发送出去
+* **Ask** 会把所选文本和你输入的问题一起发送出去
+
+AI 设置由用户手动填写，包括 API Base URL、API Key、翻译模型、Ask 模型、目标语言、Endpoint Mode、超时时间，以及 Ask 使用的 reasoning effort。这里的 API Base URL 需要能配合 `/responses` 或 `/chat/completions` 使用。`Auto` 模式会先尝试 `/responses`，若服务端明显不支持，再回退到 `/chat/completions`。
+
+这些设置会保存在本地 `localStorage`。其中也包括 API Key，所以请按你的本机安全要求自行管理。
+
+## 限制与注意事项
+
+* 不是所有远端文件都可编辑。PDF 仅预览，不可保存；二进制文件默认阻止编辑；超大文件会警告、只读或直接拒绝打开。
+* 上传和下载依赖本地文件选择与保存对话框。若当前 Tabby 构建没有这些能力，相关操作会不可用。
+* 编码自动识别并不覆盖所有情况。没有 BOM 时，当前自动流程会优先尝试 UTF-8，再尝试 GBK，最后退回 ISO-8859-1。
+* 保存 `GBK`、`GB18030`、`Big5`、`Shift_JIS`、`EUC-KR`、`Windows-1252` 等编码时，当前运行环境还需要可用的 `iconv-lite`。
+* Markdown 预览里的外部链接可打开，但相对链接目前不支持。
+* AI 相关请求有选区长度限制，当前实现上限为 4000 个字符。
+
+## 手动验证清单
+
+* [ ] 执行 `yarn install` 和 `yarn build`，把项目目录复制或软链接到 Tabby 的 Plugins 目录，重新加载 Tabby。
+* [ ] 在 SFTP 浏览器里右键普通文件，确认出现 **Edit in Tabby**，并能打开 Monaco 标签页。
+* [ ] 修改一个普通文本文件并保存，确认远端内容已更新。
+* [ ] 在侧边栏测试展开目录、刷新、返回上级、当前标签打开、新标签打开、复制路径、新建文件、新建文件夹、重命名、删除。
+* [ ] 若当前环境支持本地对话框，测试上传到当前目录或目录节点，以及下载当前文件或侧边栏文件。
+* [ ] 制造远端并发修改后再保存，确认进入 diff 视图，并验证 **Use local version**、**Use remote version**、**Cancel**。
+* [ ] 分别打开 `.md`、`.svg`、`.pdf`，验证 Markdown Source / Preview、KaTeX 数学公式渲染、SVG Source / Preview，以及 PDF 的只读预览、翻页、页码跳转、缩放和 outline 行为。
+* [ ] 验证编码切换与按编码保存，再测试二进制文件保护、1 MB 以上警告、5 MB 以上只读、20 MB 以上拒绝打开。
+* [ ] 在 Monaco、Markdown 预览或 PDF 文本层中选中文本，先配置 AI，再分别触发 **Translate** 和 **Ask**，确认只有显式触发时才会发送请求，且结果基于所选文本。
 
 ## License
 
