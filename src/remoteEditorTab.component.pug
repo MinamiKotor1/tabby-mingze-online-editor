@@ -323,9 +323,13 @@
                         [innerHTML]='markdownPreviewHtml'
                     )
 
-                .svg-preview-shell.w-100.h-100(*ngIf='showSvgPreview()', (click)='onSvgPreviewClick($event)')
+                .svg-preview-shell.w-100.h-100(*ngIf='showSvgPreview()')
                     .svg-preview-stage
-                        .svg-preview-surface([innerHTML]='svgPreviewHtml')
+                        .svg-preview-surface(*ngIf='svgPreviewUrl && !svgPreviewError')
+                            img.svg-preview-image([attr.src]='svgPreviewUrl', alt='SVG preview', (load)='onSvgPreviewImageLoad()', (error)='onSvgPreviewImageError()')
+                        .svg-preview-error(*ngIf='svgPreviewError')
+                            strong SVG preview failed
+                            pre {{svgPreviewError}}
 
                 .pdf-preview-shell.w-100.h-100(#pdfPreviewShell,
                     *ngIf='showPdfPreview()',

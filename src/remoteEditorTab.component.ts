@@ -39,6 +39,10 @@ type DomPurifyModule = {
     default?: DomPurifySanitizer | { sanitize?: DomPurifySanitizer }
 }
 
+type SvgPreviewRenderResult =
+    | { ok: true, svg: string }
+    | { ok: false, error: string }
+
 const markdownPreviewForbiddenContents = ['annotation-xml', 'audio', 'colgroup', 'desc', 'foreignobject', 'head', 'iframe', 'noembed', 'noframes', 'noscript', 'plaintext', 'script', 'style', 'template', 'thead', 'title', 'video', 'xmp']
 const markdownPreviewSanitizeOptions: Record<string, unknown> = {
     USE_PROFILES: { html: true, mathMl: true, svg: true },
@@ -56,6 +60,9 @@ const svgPreviewForbiddenContents = ['audio', 'foreignobject', 'iframe', 'noembe
 const svgPreviewSanitizeOptions: Record<string, unknown> = {
     USE_PROFILES: { svg: true, svgFilters: true },
     FORBID_CONTENTS: svgPreviewForbiddenContents,
+    ADD_TAGS: ['style', 'use', 'image', 'symbol'],
+    ADD_ATTR: ['style', 'href', 'xlink:href'],
+    ADD_DATA_URI_TAGS: ['image'],
     ALLOW_UNKNOWN_PROTOCOLS: false,
 }
 const markdownPreviewMermaidFenceSelector = 'pre > code.language-mermaid, pre > code.lang-mermaid'
@@ -410,13 +417,11 @@ function renderMarkdownPreview (text: string): string {
     }
 }
 
-function renderSvgPreviewError (detail: string): string {
-    return `
-        <div class="svg-preview-error">
-            <strong>SVG preview failed</strong>
-            <pre>${escapeHtml(detail)}</pre>
-        </div>
-    `
+function renderSvgPreviewError (detail: string): SvgPreviewRenderResult {
+    return {
+        ok: false,
+        error: detail,
+    }
 }
 
 function normalizeSvgReference (value: string): string {
@@ -440,16 +445,51 @@ function isSvgFragmentReference (value: string): boolean {
     return normalized.startsWith('#') && normalized.length > 1
 }
 
+function isSafeSvgDataReference (value: string): boolean {
+    const normalized = normalizeSvgReference(value)
+    return /^data:image\/(?:png|apng|gif|jpe?g|webp|bmp|avif|x-icon|vnd\.microsoft\.icon)(?:;[^,]*)?,/i.test(normalized)
+}
+
+function isSvgAllowedResourceReference (value: string): boolean {
+    return isSvgFragmentReference(value) || isSafeSvgDataReference(value)
+}
+
 function hasUnsafeSvgUrlReference (value: string): boolean {
     let unsafe = false
     const source = `${value ?? ''}`
     source.replace(/url\(([^)]*)\)/gi, (_match: string, rawValue: string) => {
-        if (!isSvgFragmentReference(rawValue)) {
+        if (!isSvgAllowedResourceReference(rawValue)) {
             unsafe = true
         }
         return ''
     })
     return unsafe
+}
+
+function hasUnsafeSvgStyleContent (value: string): boolean {
+    const source = `${value ?? ''}`
+
+    if (/@import\b/i.test(source)) {
+        return true
+    }
+
+    if (/javascript\s*:/i.test(source)) {
+        return true
+    }
+
+    if (/expression\s*\(/i.test(source)) {
+        return true
+    }
+
+    if (/behavior\s*:/i.test(source)) {
+        return true
+    }
+
+    if (/-moz-binding\s*:/i.test(source)) {
+        return true
+    }
+
+    return hasUnsafeSvgUrlReference(source)
 }
 
 function hardenSvgTree (root: Element): void {
@@ -458,7 +498,9 @@ function hardenSvgTree (root: Element): void {
     for (const element of elements) {
         const tagName = (element.localName ?? element.nodeName ?? '').toLowerCase()
         if (tagName === 'style') {
-            element.remove()
+            if (hasUnsafeSvgStyleContent(element.textContent ?? '')) {
+                element.remove()
+            }
             continue
         }
 
@@ -468,12 +510,14 @@ function hardenSvgTree (root: Element): void {
             const attributeValue = attribute.value ?? ''
 
             if (attributeName === 'style') {
-                element.removeAttribute(attribute.name)
+                if (hasUnsafeSvgStyleContent(attributeValue)) {
+                    element.removeAttribute(attribute.name)
+                }
                 continue
             }
 
             if (attributeName === 'href' || attributeName === 'xlink:href') {
-                if (!isSvgFragmentReference(attributeValue)) {
+                if (!isSvgAllowedResourceReference(attributeValue)) {
                     element.removeAttribute(attribute.name)
                 }
                 continue
@@ -486,7 +530,7 @@ function hardenSvgTree (root: Element): void {
     }
 }
 
-function renderSvgPreview (text: string): string {
+function renderSvgPreview (text: string): SvgPreviewRenderResult {
     try {
         const source = text ?? ''
         if (!source.trim()) {
@@ -518,7 +562,10 @@ function renderSvgPreview (text: string): string {
 
         hardenSvgTree(root)
 
-        return new XMLSerializer().serializeToString(root)
+        return {
+            ok: true,
+            svg: new XMLSerializer().serializeToString(root),
+        }
     } catch (e: unknown) {
         const detail = e instanceof Error ? e.message : 'Unknown error'
         return renderSvgPreviewError(detail)
@@ -1296,16 +1343,18 @@ function resolveCssHexColor (candidates: Array<string | null | undefined>, fallb
             background: var(--theme-bg-less, var(--bs-body-bg, #fff));
             box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.08);
             overflow: auto;
+            display: flex;
+            justify-content: center;
         }
 
-        :host ::ng-deep .svg-preview-surface > svg {
+        .svg-preview-image {
             display: block;
             max-width: 100%;
             height: auto;
             margin: 0 auto;
         }
 
-        :host ::ng-deep .svg-preview-surface .svg-preview-error {
+        .svg-preview-error {
             max-width: 520px;
             margin: 0 auto;
             padding: 1rem 1.25rem;
@@ -1314,7 +1363,7 @@ function resolveCssHexColor (candidates: Array<string | null | undefined>, fallb
             background: rgba(255, 193, 7, 0.12);
         }
 
-        :host ::ng-deep .svg-preview-surface .svg-preview-error pre {
+        .svg-preview-error pre {
             margin: 0.75rem 0 0;
             white-space: pre-wrap;
             word-break: break-word;
@@ -1692,7 +1741,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
     markdownPreviewHtml: SafeHtml | '' = ''
     isSvg = false
     svgPreview = false
-    svgPreviewHtml: SafeHtml | '' = ''
+    svgPreviewUrl = ''
+    svgPreviewError = ''
 
     translationSettings = getDefaultTranslationConfig()
     translationSettingsDraft = getDefaultTranslationConfig()
@@ -2786,15 +2836,23 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         }
     }
 
-    onSvgPreviewClick (event: MouseEvent): void {
-        const target = event.target as Element | null
-        const anchor = target?.closest?.('a') as Element | null
-        if (!anchor) {
+    onSvgPreviewImageLoad (): void {
+        if (!this.showSvgPreview()) {
             return
         }
 
-        event.preventDefault()
-        event.stopPropagation()
+        if (this.svgPreviewUrl && this.svgPreviewError) {
+            this.svgPreviewError = ''
+        }
+    }
+
+    onSvgPreviewImageError (): void {
+        if (!this.showSvgPreview()) {
+            return
+        }
+
+        this.svgPreviewUrl = ''
+        this.svgPreviewError = 'SVG preview image failed to load'
     }
 
     onMarkdownPreviewClick (event: MouseEvent): void {
@@ -3478,7 +3536,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             languageId: this.languageId,
             isSvg: this.isSvg,
             svgPreview: this.svgPreview,
-            svgPreviewHtml: this.svgPreviewHtml,
+            svgPreviewUrl: this.svgPreviewUrl,
+            svgPreviewError: this.svgPreviewError,
             encoding: this.encoding,
             encodingAuto: this.encodingAuto,
             loadedBuffer: this.loadedBuffer,
@@ -3503,7 +3562,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.languageId = detectLanguageId(item.name ?? item.fullPath)
         this.isSvg = isSvgFile(item.name ?? item.fullPath)
         this.svgPreview = false
-        this.svgPreviewHtml = ''
+        this.svgPreviewUrl = ''
+        this.svgPreviewError = ''
         this.encodingAuto = true
         this.encoding = 'utf-8'
         this.loadedBuffer = null
@@ -3521,7 +3581,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             this.languageId = prev.languageId
             this.isSvg = prev.isSvg
             this.svgPreview = prev.svgPreview
-            this.svgPreviewHtml = prev.svgPreviewHtml
+            this.svgPreviewUrl = prev.svgPreviewUrl
+            this.svgPreviewError = prev.svgPreviewError
             this.encoding = prev.encoding
             this.encodingAuto = prev.encodingAuto
             this.loadedBuffer = prev.loadedBuffer
@@ -3813,7 +3874,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
         this.isBinary = isBinaryContent(buffer)
 
         if (!this.isSvg) {
-            this.svgPreviewHtml = ''
+            this.svgPreviewUrl = ''
+            this.svgPreviewError = ''
         }
 
         if (this.isPdf) {
@@ -4935,7 +4997,8 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
 
     private refreshSvgPreview (text?: string): void {
         if (!this.isSvg) {
-            this.svgPreviewHtml = ''
+            this.svgPreviewUrl = ''
+            this.svgPreviewError = ''
             return
         }
 
@@ -4951,7 +5014,15 @@ export class RemoteEditorTabComponent extends BaseTabComponent {
             }
         }
 
-        this.svgPreviewHtml = this.domSanitizer.bypassSecurityTrustHtml(renderSvgPreview(source ?? ''))
+        const result = renderSvgPreview(source ?? '')
+        if ('svg' in result) {
+            this.svgPreviewError = ''
+            this.svgPreviewUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(result.svg)}`
+            return
+        }
+
+        this.svgPreviewUrl = ''
+        this.svgPreviewError = result.error
     }
 
     private cancelMarkdownMermaidRender (): void {
