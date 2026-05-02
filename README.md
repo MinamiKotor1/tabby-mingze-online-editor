@@ -118,6 +118,57 @@
 
 这个仓库当前更适合作为源码仓库使用。常见安装方式是从源码构建后放进 Tabby 的插件目录。
 
+### Windows + Node.js 22.22.2
+
+建议使用:
+
+- Node.js `22.22.2`
+- Yarn Classic `1.22.x`
+
+先确认 Node 和 npm:
+
+```powershell
+node -v
+npm -v
+```
+
+如果还没有 Yarn:
+
+```powershell
+npm install -g yarn
+yarn -v
+```
+
+进入插件源码目录后安装依赖并构建:
+
+```powershell
+yarn install
+yarn build
+```
+
+日常安装使用可以改用生产构建:
+
+```powershell
+yarn build:prod
+```
+
+然后把整个项目目录复制到 Tabby 的用户插件目录:
+
+```text
+%APPDATA%\Tabby\plugins\tabby-mingze-online-editor
+```
+
+也可以用目录联接，方便以后在源码目录重新构建后直接生效。用管理员或有权限的 PowerShell 执行:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\Tabby\plugins"
+cmd /c mklink /J "$env:APPDATA\Tabby\plugins\tabby-mingze-online-editor" "C:\path\to\tabby-mingze-online-editor"
+```
+
+放好后重启 Tabby，或在 Tabby 里重新加载插件。插件目录中应该能直接看到 `package.json` 和 `dist\index.js`。
+
+### Linux / macOS
+
 先安装依赖并构建:
 
 ```bash

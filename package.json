@@ -18,6 +18,11 @@
   ],
   "author": "Mingze",
   "license": "MIT",
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=18.12 <23",
+    "yarn": ">=1.22 <2"
+  },
   "dependencies": {
     "github-markdown-css": "^5.9.0",
     "katex": "^0.16.45",
